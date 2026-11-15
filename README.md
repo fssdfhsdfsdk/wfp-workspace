@@ -133,12 +133,12 @@ cd ..
 ```
 
 - `frontend/src/App.tsx`：7 页 hash 路由、顶栏当前节点、AI 草案入口、快捷键、Toast。
-- `frontend/src/pages/Actions.tsx`：分类/搜索、CRUD、启停/复制、Monaco 实现体编辑、版本 diff、契约套件、单动作试跑。
+- `frontend/src/pages/Actions.tsx`：分类/搜索、CRUD、启停/复制、Monaco 实现体编辑、版本 diff、契约套件、单动作试跑、「验证全部动作」批量端到端报告。
 - `frontend/src/pages/Pipelines.tsx`：rjsf inputs 表单、干跑 → PlanReport（diff/风险/不可补偿）→ 确认闸 → 执行、复制/导出/删除二次确认。
 - `frontend/src/pages/Editor.tsx`：React Flow 图（拖拽插入、连线改序、多选删除、dagre 自动布局、when/loop 容器、撤销重做）⇄ Monaco YAML（300ms 防抖、lint 标记点击跳转）双栏；rjsf 参数表单只产出 `steps[i]` 最小 patch；布局写 `pipeline.layout.json`。
 - `frontend/src/StepParamsModal.tsx`：画布节点**单击仅选中，双击编辑参数**，也可点画布工具栏或右侧面板的「**编辑参数**」按钮；展示**可用参数列表**（manifest.params）、**修改默认参数**、增删**任意参数**（值支持 JSON），保存只替换 `steps[i].with`（DR-14/27/48）。
 - 工作项页「拖拽新建」→ 编排页无 `id` 时进入草稿模式：拖入动作按落点决定步骤顺序、连线/拖动改序、点击节点编辑参数，点「保存工作项」由后端 `POST /api/pipelines/draft` 生成并校验 YAML 真源，再写回布局。
-- `frontend/src/pages/Runs.tsx`：步骤树（循环/attempt）、SSE 日志（级别/关键字/步骤过滤、跟随暂停、ANSI、NDJSON 下载）、输出查看窗口、证据 diff/zip、取消/暂停/续跑/补偿/单步重试、md/html/csv 报表。
+- `frontend/src/pages/Runs.tsx`：步骤树（循环/attempt）、SSE 日志（结构化打印执行命令/入口/参数/目标/结果/耗时，点击行展开完整 JSON，级别/关键字/步骤过滤、跟随暂停、ANSI、NDJSON 下载）、输出查看窗口、证据 diff/zip、运行历史删除（二次确认）、取消/暂停/续跑/补偿/单步重试、md/html/csv 报表。
 - `frontend/src/pages/Nodes.tsx` / `History.tsx` / `Settings.tsx` / `AIDraft.tsx`：节点与凭据 CRUD、历史筛选与"相同输入重跑"、设置与备份恢复、AI 四道闸。
 
 Vite 构建产物在 `wfp/web/dist/`，由 FastAPI `StaticFiles` 托管 `/assets/*`，**运行期不请求任何 CDN**（DR-07）。`npm run build` 还会生成兼容入口 `/app.js`、`/style.css`。
@@ -151,6 +151,8 @@ Vite 构建产物在 `wfp/web/dist/`，由 FastAPI `StaticFiles` 托管 `/assets
 - 或勾选「允许访问 workspace 之外的绝对路径」（写入 `meta.allow_outside_workspace: true`）。
 
 拖拽新建工作项时，草稿表单同样提供这两项。YAML 里写 Windows 路径建议用正斜杠 `C:/Users/...` 或单引号，避免双引号标量中的 `\U` 被当成转义。
+
+`archive.pack` 的 `dest` 是压缩包**基名**：填 `C:\Users\Administrator\Downloads\workspace` 实际生成 `C:\Users\Administrator\Downloads\workspace.zip`；想输出到某目录内请写 `C:\Users\Administrator\Downloads\workspace\backup.zip`。该动作每次运行都会重新打包（DR-32 的幂等跳过不适用于 pack，见 `bug-tracks.md` BUG-007）。
 
 ## 2. 已实现的工程能力
 

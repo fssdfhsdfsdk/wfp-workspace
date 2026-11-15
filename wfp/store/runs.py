@@ -75,6 +75,28 @@ class RunStore:
         rows = self.store.read(lambda c: c.execute(sql, args).fetchall())
         return [dict(r) for r in rows]
 
+    def delete(self, run_id: str, *, actor: str = "ui") -> dict[str, Any]:
+        """运行历史删除：仅允许终态 run；级联清理 DB 行与日志/证据文件（DR-65/69）。"""
+        import shutil
+
+        from wfp.errors import Conflict
+
+        rec = self.get(run_id)
+        if rec["status"] not in RUN_TERMINAL:
+            raise Conflict(f"运行尚未结束（{rec['status']}），请等待完成或取消后再删除", path=run_id)
+
+        def _w(c: Any) -> None:
+            c.execute("DELETE FROM step_run WHERE run_id=?", (run_id,))
+            c.execute("DELETE FROM artifact WHERE run_id=?", (run_id,))
+            c.execute("DELETE FROM journal WHERE run_id=?", (run_id,))
+            c.execute("DELETE FROM singleton_lock WHERE holder_run=?", (run_id,))
+            c.execute("DELETE FROM run WHERE id=?", (run_id,))
+        self.store.write(_w)
+        for d in (self.paths.logs / run_id, self.paths.artifacts / run_id):
+            shutil.rmtree(d, ignore_errors=True)
+        self.store.audit(actor, "run.delete", run_id, {"status": rec["status"]})
+        return {"id": run_id, "deleted": True}
+
     def scan_interrupted(self) -> builtins.list[str]:
         """DR-37/39：崩溃后未完成的 run 标 interrupted，并释放陈旧锁。"""
         rows = self.store.read(lambda c: c.execute(

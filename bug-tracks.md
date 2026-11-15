@@ -222,3 +222,44 @@ SSE 帧的事件类型分发与前端监听方式不匹配；前端轮询缺少�
 
 时间：
 2026-11-15
+
+## BUG-007 · 压缩任务显示成功却没有压缩包（幂等误判）
+
+描述：
+`archive.pack@1.0.0` 直接运行返回 `run.finished {"status":"succeeded","steps":1,"duration_ms":2}`，
+但用户在 Windows 上找不到任何压缩包。事件流里第 2 条是
+`step.skipped {"reason":"idempotent","key":"98aecb9b..."}`，说明步骤被跳过、零写操作。
+
+背景与上下文：
+工作项 YAML：`src: C:\Users\Administrator\Downloads\my_dev`、
+`dest: C:\Users\Administrator\Downloads\workspace`、`meta.allow_outside_workspace: true`。
+日志时间 2026-11-16 00:00:54；`duration_ms: 2` 与 `steps: 1` 都指向"根本没执行打包"。
+
+分析过程：
+1. `wfp/engine/phases.py::_execute` 在 `caps["idempotent"] == "yes"` 且 `probe()` 为真时
+   记 `skipped_idempotent` 并 `continue`；聚合后 run 仍是 `succeeded`，所以 UI 显示成功。
+2. `wfp/actions/builtin.py::_plan_pack` 返回
+   `desired_state={"path": str(dest), "exists": True}`；但 `shutil.make_archive` 的实际输出是
+   `dest` 补后缀后的 `workspace.zip`，而不是 `workspace` 本身。
+3. `wfp/engine/idempotency.py::probe` 对 `exists` 只做 `Path(desired["path"]).exists()`。
+   `C:\Users\Administrator\Downloads\workspace` 作为目录本来就存在，于是一次次判定
+   "期望态已满足" → 永远跳过，压缩包从未生成。
+4. 规格 DR-32 的二次 apply 跳过清单是 `config.edit / fs.copy / archive.extract / net.upload`，
+   **不含 archive.pack**；且打包内容随源目录变化，用"目标存在"做幂等本就不成立。
+
+根因：
+plan 的期望态指向压缩包**基名**而非真实输出文件，配合宽松的 `exists` 探测，
+对不该幂等跳过的 `archive.pack` 误判为已完成。
+
+解决方法：
+1. 新增 `_pack_output()`：统一计算真实输出路径（去掉 `.zip`/`.tar.gz` 后缀再按 format 补回），
+   plan 与 apply 共用，消除两处路径语义不一致。
+2. `_plan_pack`：`targets` / `backup_targets` 指向真实输出文件；
+   `desired_state={"idempotent": False, "path": str(out)}` 显式禁用幂等跳过，
+   每次运行都重新打包并覆盖输出（符合 DR-32 跳过清单）。
+3. `_apply_pack` 复用 helper，保留上一轮加的"输出落在源目录内"自包含递归防护。
+4. 回归用例 `tests/integration/test_pack_idempotency.py`：模拟 `dest` 同名目录已存在，
+   验证干跑零副作用且 targets 指向 `workspace.zip`，两次直接运行均真正生成可打开的 zip。
+
+时间：
+2026-11-16

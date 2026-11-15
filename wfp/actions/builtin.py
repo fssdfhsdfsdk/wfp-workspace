@@ -92,10 +92,26 @@ def _plan_archive(ctx: ActionContext) -> PlanResult:
     return r
 
 
-def _plan_pack(ctx: ActionContext) -> PlanResult:
+def _pack_output(ctx: ActionContext) -> tuple[Path, Path, str, Path, str]:
+    """打包动作的实际输出：dest 只是基名，make_archive 会补 .zip / .tar.gz 后缀。"""
     src, dest = _local(ctx, "src"), _local(ctx, "dest")
-    return PlanResult(targets=[str(src), str(dest)], backup_targets=_backup_targets(ctx, ("dest",)),
-                      desired_state={"path": str(dest), "exists": True})
+    fmt = ctx.params.get("format", "zip")
+    base = str(dest)
+    for suffix in (".zip", ".tar.gz"):
+        if base.endswith(suffix):
+            base = base[:-len(suffix)]
+    out = Path(base + (".tar.gz" if fmt == "tar.gz" else ".zip"))
+    return src, dest, base, out, fmt
+
+
+def _plan_pack(ctx: ActionContext) -> PlanResult:
+    src, _dest, _base, out, _fmt = _pack_output(ctx)
+    # dest 只是压缩包基名；若用它做 exists 探测，只要同名目录/文件存在就会误判幂等，
+    # run 显示 succeeded 却从未生成压缩包。DR-32 的跳过清单本就不含 archive.pack。
+    return PlanResult(targets=[str(src), str(out)],
+                      backup_targets=[{"kind": "local", "path": str(out), "is_dir": False}]
+                      if out.exists() else [],
+                      desired_state={"idempotent": False, "path": str(out)})
 
 
 def _plan_config(ctx: ActionContext) -> PlanResult:
@@ -205,14 +221,8 @@ def _selected(name: str, include: list[str], exclude: list[str]) -> bool:
 
 
 def _apply_pack(ctx: ActionContext) -> ApplyResult:
-    src, dest = _local(ctx, "src"), _local(ctx, "dest")
-    fmt = ctx.params.get("format", "zip")
+    src, dest, base, out, fmt = _pack_output(ctx)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    base = str(dest)
-    for suffix in (".zip", ".tar.gz"):
-        if base.endswith(suffix):
-            base = base[:-len(suffix)]
-    out = Path(base + (".tar.gz" if fmt == "tar.gz" else ".zip"))
     try:
         # dest 落在 src 内会让 shutil.make_archive 把正在生成的压缩包打进自身，
         # 文件持续膨胀且任务永不结束（用户反馈的"压缩文件夹持续未完成"）。

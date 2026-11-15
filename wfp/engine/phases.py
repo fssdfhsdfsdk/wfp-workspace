@@ -239,7 +239,10 @@ class Runner:
         self._active[run_id] = run
         items: list[dict[str, Any]] = []
         try:
-            run.events.emit("run.started", {"phase": "plan", "inputs_sha256": sha256_bytes(
+            run.events.emit("run.started", {"phase": "plan", "pipeline": doc.pipeline_id,
+                                            "version": doc.version, "workdir": str(doc.workspace),
+                                            "inputs": run.redactor.scrub(merged),
+                                            "inputs_sha256": sha256_bytes(
                 json.dumps(merged, ensure_ascii=False, sort_keys=True, default=str).encode())})
             for step, scope, iteration, skip in self._iter_steps(doc, run.scope):
                 self.runs.heartbeat(run_id)
@@ -382,6 +385,9 @@ class Runner:
                     except json.JSONDecodeError:
                         pass
         run.events.emit("run.started", {"phase": "apply", "resume": bool(existing),
+                                        "pipeline": doc.pipeline_id, "version": doc.version,
+                                        "workdir": str(doc.workspace),
+                                        "inputs": run.redactor.scrub(merged),
                                         "plan_sha": plan_report["sha256"]})
         try:
             self._execute(run, doc, plan_report, skip=skip, only_step=only_step)
@@ -434,6 +440,22 @@ class Runner:
                                 phase="apply", step_run_id=step_run_id)
                 planned = adapter.plan(ctx)
                 caps = manifest["capabilities"]
+                t0 = time.monotonic()
+                entry = manifest.get("entry") or {}
+                command = str(params.get("command") or "")
+                if not command and params.get("args"):
+                    command = "python <impl> " + " ".join(str(a) for a in params["args"])
+                if not command:
+                    command = str(entry.get("command") or entry.get("module")
+                                  or entry.get("operation") or entry.get("script") or "")
+                # 结构化执行上下文：命令 / 入口 / 参数 / 目标 / 工作目录，便于直观定位
+                run.events.emit("step.started", {
+                    "action": f"{aid}@{ver}", "runtime": manifest.get("runtime"),
+                    "entry": str(entry.get("module") or entry.get("operation")
+                                 or entry.get("script") or ""),
+                    "command": command, "params": run.redactor.scrub(params),
+                    "targets": planned.targets, "workdir": str(run.doc.workspace),
+                }, step=sid)
                 key = make_key(f"{aid}@{ver}", params, planned.desired_state)
                 if caps["idempotent"] in ("yes", "conditional") and probe(ctx, planned.desired_state):
                     self.runs.add_step(step_run_id, run_id=run.run_id, step_key=sid,
@@ -442,7 +464,9 @@ class Runner:
                                        skip_reason="desired_state_satisfied", idempotency_key=key)
                     self.runs.journal(run.run_id, "skipped_idempotent",
                                       {"step": sid, "key": key}, step_run_id)
-                    run.events.emit("step.skipped", {"reason": "idempotent", "key": key}, step=sid)
+                    run.events.emit("step.skipped", {
+                        "reason": "idempotent", "key": key,
+                        "note": "期望态已满足，本次未执行任何写操作（DR-32）"}, step=sid)
                     continue
 
                 # DR-33：apply 前置备份
@@ -484,8 +508,12 @@ class Runner:
                                    outputs=outcome.outputs, exit_code=0)
                 if step.get("register"):
                     scope.register(str(step["register"]), outcome.outputs)
-                run.events.emit("step.finished", {"status": "succeeded",
-                                                  "outputs": run.redactor.scrub(outcome.outputs)}, step=sid)
+                run.events.emit("step.finished", {
+                    "status": "succeeded", "action": f"{aid}@{ver}",
+                    "outputs": run.redactor.scrub(outcome.outputs),
+                    "result": run.redactor.scrub(outcome.outputs),
+                    "receipts": receipts, "attempt": outcome.attempt,
+                    "duration_ms": round((time.monotonic() - t0) * 1000)}, step=sid)
             except Cancelled:
                 run.status, run.error, abort = "cancelled", "WFP-E-CANCELLED", True
                 break

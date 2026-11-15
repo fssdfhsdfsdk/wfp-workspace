@@ -4,12 +4,41 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, downloadFile, sseUrl, toast } from '../api';
 import { DiffView } from '../Monaco';
-import { Badge, Empty, Modal, Section } from '../ui';
+import { Badge, Empty, Modal, NameConfirm, Section } from '../ui';
 
 const ANSI = /\x1b\[[0-9;]*m/g;
 const TERMINAL = new Set(['succeeded', 'succeeded_with_warnings', 'failed', 'cancelled',
   'planned', 'plan_failed', 'interrupted', 'compensated', 'manual_attention']);
 const stamp = (v: any) => String(v || '').replace('T', ' ').slice(0, 19);
+
+const payloadLine = (ev: any): string => {
+  const p = ev.payload || {};
+  if (ev.type === 'step.started') {
+    return [
+      `动作 ${p.action || '-'}`, `runtime ${p.runtime || '-'}`,
+      `命令/入口 ${p.command || p.entry || '-'}`,
+      `参数 ${JSON.stringify(p.params || {})}`,
+      `目标 ${(p.targets || []).join(', ') || '-'}`,
+      `工作目录 ${p.workdir || '-'}`,
+    ].join('  |  ');
+  }
+  if (ev.type === 'step.finished') {
+    return [
+      `状态 ${p.status || '-'}`,
+      `结果 ${JSON.stringify(p.outputs ?? p.result ?? p.error ?? {})}`,
+      `耗时 ${p.duration_ms ?? '-'}ms`, `attempt ${p.attempt ?? '-'}`,
+      p.receipts?.length ? `证据 ${p.receipts.length} 项` : '',
+    ].filter(Boolean).join('  |  ');
+  }
+  if (ev.type === 'step.skipped') {
+    return `原因 ${p.reason || '-'}  |  ${p.note || ''}  |  key ${p.key || '-'}`;
+  }
+  if (ev.type === 'run.started') {
+    return `阶段 ${p.phase || '-'}  |  工作项 ${p.pipeline || '-'}@${p.version || '-'}  |  ` +
+      `输入 ${JSON.stringify(p.inputs || {})}  |  工作目录 ${p.workdir || '-'}`;
+  }
+  return JSON.stringify(p);
+};
 
 export function RunsPage({ params }: { params: URLSearchParams }) {
   const [runs, setRuns] = useState<any[]>([]);
@@ -24,6 +53,8 @@ export function RunsPage({ params }: { params: URLSearchParams }) {
   const [outputOpen, setOutputOpen] = useState(false);
   const [wrap, setWrap] = useState(false);
   const [diffPair, setDiffPair] = useState<any>(null);
+  const [expanded, setExpanded] = useState<Record<number, boolean>>({});
+  const [confirmDel, setConfirmDel] = useState<any>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const esRef = useRef<EventSource | null>(null);
 
@@ -105,9 +136,10 @@ export function RunsPage({ params }: { params: URLSearchParams }) {
       <div className="row"><button className="btn" onClick={loadRuns}>刷新</button></div></div>
     <div className="grid runs-layout">
       <Section title={`运行历史（${runs.length}）`} className="run-list">
-        {!runs.length ? <Empty text="暂无运行" /> : <table><thead><tr><th>Run</th><th>工作项</th><th>阶段</th><th>状态</th></tr></thead>
+        {!runs.length ? <Empty text="暂无运行" /> : <table><thead><tr><th>Run</th><th>工作项</th><th>阶段</th><th>状态</th><th></th></tr></thead>
           <tbody>{runs.map((r) => <tr key={r.id} className={runId === r.id ? 'row-active' : ''} onClick={() => setRunId(r.id)}>
             <td className="mono">{r.id}</td><td>{r.pipeline_id}</td><td>{r.phase}</td><td><Badge status={r.status} /></td>
+            <td><button className="btn tiny danger" onClick={(e) => { e.stopPropagation(); setConfirmDel(r); }}>删除</button></td>
           </tr>)}</tbody></table>}
       </Section>
 
@@ -163,9 +195,12 @@ export function RunsPage({ params }: { params: URLSearchParams }) {
             </div>
             <div id="log" className={`log ${wrap ? 'wrap' : ''}`} ref={logRef}>
               {!filtered.length ? <div className="muted">等待事件…（SSE，Last-Event-ID 续传）</div> :
-                filtered.map((ev) => <div key={ev.seq} className={`line ${/fail|error/i.test(ev.type) ? 'err' : ''}`}>
+                filtered.map((ev) => <div key={ev.seq} className={`line ${/fail|error/i.test(ev.type) ? 'err' : ''}`}
+                  title="点击展开完整事件 JSON" onClick={() => setExpanded((x) => ({ ...x, [ev.seq]: !x[ev.seq] }))}>
                   <span className="t">{ev.seq} {stamp(ev.ts)}</span> <span className="ev-type">{ev.type}</span>{' '}
-                  <span className={/stdout/.test(ev.type) ? 'stdout' : ''}>{String(JSON.stringify(ev.payload)).replace(ANSI, '').slice(0, 600)}</span>
+                  <span className={/stdout/.test(ev.type) ? 'stdout' : ''}>
+                    {String(payloadLine(ev)).replace(ANSI, '').slice(0, 1200)}</span>
+                  {expanded[ev.seq] && <pre className="pre tiny">{JSON.stringify(ev, null, 2)}</pre>}
                 </div>)}
             </div>
           </Section>}
@@ -194,6 +229,17 @@ export function RunsPage({ params }: { params: URLSearchParams }) {
     </Modal>}
     {diffPair && <Modal title={`配置 diff · ${diffPair.name}`} wide onClose={() => setDiffPair(null)}>
       <DiffView before={diffPair.before} after={diffPair.after} height={440} />
+    </Modal>}
+    {confirmDel && <Modal title="删除运行记录" onClose={() => setConfirmDel(null)}>
+      <NameConfirm name={confirmDel.id} label="确认删除" onCancel={() => setConfirmDel(null)}
+        onConfirm={async () => {
+          try {
+            await api.del(`/api/runs/${confirmDel.id}`);
+            toast(`已删除运行记录 ${confirmDel.id}`);
+            if (runId === confirmDel.id) { setRunId(''); setRun(null); setEvents([]); }
+            setConfirmDel(null); await loadRuns();
+          } catch (e: any) { toast(e.message, 'error'); }
+        }} />
     </Modal>}
   </div>;
 }

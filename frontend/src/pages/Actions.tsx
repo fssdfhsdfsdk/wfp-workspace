@@ -64,6 +64,7 @@ export function ActionsPage() {
   const [createParams, setCreateParams] = useState('{"type":"object","properties":{},"required":[]}');
   const [createImpl, setCreateImpl] = useState('print("WFP_OUTPUT::{}")\n');
   const [confirmDelete, setConfirmDelete] = useState<any>(null);
+  const [verify, setVerify] = useState<any>(null);
 
   const load = () => api.get(`/api/actions?query=${encodeURIComponent(query)}&category=${encodeURIComponent(category)}`)
     .then(setList).catch((e) => toast(e.message, 'error'));
@@ -111,9 +112,19 @@ export function ActionsPage() {
     } catch (e: any) { toast(e.message, 'error'); }
   };
 
+  const runVerifyAll = async () => {
+    try {
+      toast('正在验证动作库全部动作…');
+      const r = await api.post('/api/actions/verify-all');
+      setVerify(r);
+      toast(`验证完成：${r.passed}/${r.total} 通过`);
+    } catch (e: any) { toast(e.message, 'error'); }
+  };
+
   return <div className="page">
-    <div className="page-head"><div><h1>动作库</h1><p className="sub">manifest + 实现体，版本不可变；分类/搜索/能力徽章/单动作试跑（DR-41）</p></div>
+    <div className="page-head"><div><h1>动作库</h1><p className="sub">manifest + 实现体，版本不可变；分类/搜索/能力徽章/单动作试跑/批量端到端验证（DR-18/41）</p></div>
       <div className="row"><button className="btn primary" onClick={() => setCreateOpen(true)}>新建动作</button>
+        <button className="btn" onClick={runVerifyAll}>验证全部动作</button>
         <button className="btn" onClick={load}>刷新</button></div></div>
     <div className="grid cols2 page-grid">
       <Section title={`全部动作（${list.length}）`}>
@@ -200,6 +211,16 @@ export function ActionsPage() {
         try { await api.del(`/api/actions/${confirmDelete.id}`); toast('已软删除'); setConfirmDelete(null); setSelected(null); await load(); }
         catch (e: any) { toast(e.message, 'error'); }
       }} />
+    </Modal>}
+    {verify && <Modal title={`动作库端到端验证（${verify.passed}/${verify.total} 通过）`} wide onClose={() => setVerify(null)}>
+      <p className="tiny muted">每项含 manifest 契约 8 项（含真实 plan 零副作用探针）、样例参数渲染与
+        JSON Schema 校验；全部动作的真实 plan/apply 另由 CI 端到端用例覆盖。验证过程不写用户 workspace。</p>
+      <table><thead><tr><th>动作</th><th>版本</th><th>结果</th><th>通过项</th><th>详情</th></tr></thead>
+        <tbody>{verify.items.map((i: any) => <tr key={i.action_id}>
+          <td className="mono">{i.action_id}</td><td>{i.version}</td>
+          <td><Badge status={i.ok ? 'ok' : 'failed'} /></td>
+          <td>{i.passed}/{i.total}</td><td className="tiny">{i.detail}</td>
+        </tr>)}</tbody></table>
     </Modal>}
   </div>;
 }

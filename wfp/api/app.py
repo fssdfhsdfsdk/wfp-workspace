@@ -207,6 +207,12 @@ def create_app(paths: DataPaths | None = None, *, token: str | None = None,
     def action_list(query: str = "", category: str | None = None, tag: str | None = None) -> Any:
         return actions.list(query=query, category=category, tag=tag)
 
+    @app.post("/api/actions/verify-all")
+    def actions_verify_all() -> Any:
+        """DR-18/41：批量验证动作库全部动作（契约 8 项 + 参数校验 + plan 零副作用探针）。"""
+        from wfp.actions.verify import verify_all_actions
+        return verify_all_actions(actions)
+
     @app.post("/api/actions")
     async def action_create(request: Request) -> Any:
         body = await request.json()
@@ -467,6 +473,11 @@ def create_app(paths: DataPaths | None = None, *, token: str | None = None,
     @app.get("/api/runs/{run_id}")
     def run_get(run_id: str) -> Any:
         return runner.run_status(run_id)
+
+    @app.delete("/api/runs/{run_id}")
+    def run_delete(run_id: str) -> Any:
+        """运行历史删除：仅终态 run 可删，级联清理日志与证据（DR-65/69）。"""
+        return runs.delete(run_id, actor="ui")
 
     @app.post("/api/runs/{run_id}/apply")
     async def run_apply(run_id: str, request: Request) -> Any:
