@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from wfp.contracts.yamlio import CommentedMap, CommentedSeq, dump_rt, make_rt
+from wfp.contracts.yamlio import CommentedMap, CommentedSeq, dump_rt, make_rt, safe_load
 from wfp.errors import Conflict, ContractError
 
 
@@ -78,7 +78,19 @@ class YamlDoc:
         return cls(Path(path).read_text(encoding="utf-8-sig"))
 
     def dump(self) -> str:
-        return dump_rt(self.yaml, self.doc, self.text)
+        out = dump_rt(self.yaml, self.doc, self.text)
+        try:
+            safe_load(out)
+        except Exception as exc:
+            # 缩进推断异常时回退到标准 round-trip 缩进，保证图编辑产物始终可解析，
+            # 且不会把 ruamel ParserError 冒泡成 500（DR-45）。
+            self.yaml.indent(mapping=2, sequence=4, offset=2)
+            out = dump_rt(self.yaml, self.doc, self.text)
+            try:
+                safe_load(out)
+            except Exception as exc2:
+                raise YamlParseError(f"图编辑生成的 YAML 无法解析：{exc2}") from exc
+        return out
 
     @property
     def steps(self) -> Any:

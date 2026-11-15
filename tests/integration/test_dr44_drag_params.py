@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from tests.conftest import LOCAL_PIPELINE
 from wfp.api.app import create_app
+from wfp.contracts.yamlio import safe_load
 
 TOKEN = "drag-params-token"
 HEADERS = {"X-WFP-Token": TOKEN, "Host": "127.0.0.1:8765"}
@@ -76,3 +77,27 @@ def test_dr44_bundle_exposes_drag_and_params_ui(web) -> None:
     bundle = client.get("/app.js").text
     for marker in ("拖拽新建", "保存工作项", "可用参数列表", "任意参数", "编辑动作参数", "点击画布节点编辑"):
         assert marker in bundle, marker
+
+
+def test_bug001_patch_on_top_level_sequence_produces_parseable_yaml(web) -> None:
+    """BUG-001 回归：steps 序列 dash 顶格时，图编辑不得产出键与 dash 同列的非法 YAML。"""
+    client, _, _ = web
+    yaml_text = ("apiVersion: wfp/v1\nmeta:\n  id: indent-demo\n  name: 缩进回归\n"
+                 "  version: 1.0.0\nsteps:\n- id: s1\n  uses: archive.pack@1.0.0\n  with: {}\n")
+    created = client.post("/api/pipelines", headers=HEADERS, json={"yaml": yaml_text})
+    assert created.status_code == 200, created.text
+    sha = client.get("/api/pipelines/indent-demo/yaml", headers=HEADERS).json()["sha256"]
+    r = client.post("/api/pipelines/indent-demo/patch", headers=HEADERS,
+                    json={"sha256": sha, "deltas": [{"kind": "insert_step", "index": 0,
+                                                     "new_step": {"id": "s0", "uses": "assert.file_exists@1.0.0",
+                                                                  "with": {}}}]})
+    assert r.status_code == 200, r.text
+    assert safe_load(r.json()["text"])["steps"][0]["id"] == "s0"
+
+    # draft 新产物使用标准缩进，且同样可被 round-trip 编辑
+    r2 = client.post("/api/pipelines/draft", headers=HEADERS,
+                     json={"id": "indent-draft", "steps": [{"id": "s1", "uses": "archive.pack@1.0.0", "with": {}}]})
+    assert r2.status_code == 200, r2.text
+    text = client.get("/api/pipelines/indent-draft/yaml", headers=HEADERS).json()["text"]
+    assert "\n  - id: s1\n" in text
+    assert safe_load(text)["meta"]["id"] == "indent-draft"

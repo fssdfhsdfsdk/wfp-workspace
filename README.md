@@ -211,6 +211,7 @@ frontend/package-lock.json  npm ci 的前端依赖锁定
 | `implementation-plan.md` | M0–M5 WBS、G0–G5 门禁、风险与评审 |
 | `qualification-strategy.md` | 84 条 QC 用例与证据归档规范 |
 | `traceability.md` / `.csv` | 自动生成的双追溯矩阵（勿手工编辑） |
+| `bug-tracks.md` | 开发过程 bug 追踪（描述 / 背景与上下文 / 分析过程 / 根因 / 解决方法 / 时间） |
 
 ## 6. 已知限制（相对计划基线）
 

@@ -40,6 +40,7 @@ def safe_dump(data: Any) -> str:
     if HAVE_RUAMEL:
         y = YAML(typ="safe")
         y.default_flow_style = False
+        y.indent(mapping=2, sequence=4, offset=2)   # 与 round-trip 的 detect_indents 保持一致
         buf = io.StringIO()
         y.dump(data, buf)
         return buf.getvalue()
@@ -57,11 +58,17 @@ def detect_indents(text: str) -> tuple[int, int, int]:
             break
     # 从 "- id: ..." 行推断：dash 缩进 + dash 后空格数 => 首个 key 的列号。
     # ruamel 的 sequence 参数等于该 key 列号（标准 2 空格 -> 4；宽缩进 -> 6）。
-    seq_line = re.search(r"^( *)-( +)\S", text, re.M)
+    seq_lines = list(re.finditer(r"^( *)-( +)\S", text, re.M))
     offset = 2
     sequence = mapping + offset
-    if seq_line:
-        key_indent = len(seq_line.group(1)) + 1 + len(seq_line.group(2))
+    if seq_lines:
+        # 取最浅层序列项（steps 层），避免误用嵌套列表（如 edits）的缩进。
+        seq_line = min(seq_lines, key=lambda m: len(m.group(1)))
+        dash_indent = len(seq_line.group(1))
+        key_indent = dash_indent + 1 + len(seq_line.group(2))
+        # offset 必须等于原文 dash 缩进：顶格序列（"- id:"）为 0，缩进序列（"  - id:"）为 2。
+        # 固定 offset=2 会让顶格序列 dump 成 "  - id:\n  uses:"（键与 dash 同列）的非法 YAML。
+        offset = dash_indent
         sequence = max(mapping, key_indent)
     return mapping, sequence, offset
 
