@@ -1,6 +1,8 @@
 """DR-44/48：视图拖拽草稿创建工作项、点击节点编辑任意/默认参数、按落点插入。"""
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -75,7 +77,8 @@ def test_dr48_set_with_and_indexed_insert(web) -> None:
 def test_dr44_bundle_exposes_drag_and_params_ui(web) -> None:
     client, _, _ = web
     bundle = client.get("/app.js").text
-    for marker in ("拖拽新建", "保存工作项", "可用参数列表", "任意参数", "编辑动作参数", "点击画布节点编辑"):
+    for marker in ("拖拽新建", "保存工作项", "可用参数列表", "任意参数", "编辑动作参数",
+                   "编辑参数", "单击选中 · 双击节点编辑参数", "单击选中 / 双击编辑"):
         assert marker in bundle, marker
 
 
@@ -101,3 +104,15 @@ def test_bug001_patch_on_top_level_sequence_produces_parseable_yaml(web) -> None
     text = client.get("/api/pipelines/indent-draft/yaml", headers=HEADERS).json()["text"]
     assert "\n  - id: s1\n" in text
     assert safe_load(text)["meta"]["id"] == "indent-draft"
+
+
+def test_editor_single_click_selects_and_double_click_edits() -> None:
+    root = Path(__file__).resolve().parents[2]
+    editor = (root / "frontend/src/pages/Editor.tsx").read_text(encoding="utf-8")
+    canvas = (root / "frontend/src/GraphCanvas.tsx").read_text(encoding="utf-8")
+    assert "onNodeClick={(_, node) => onSelect(node.id)}" in canvas        # 单击仅选中
+    assert "onNodeDoubleClick={(_, node) => onEdit(node.id)}" in canvas    # 双击才编辑
+    assert "zoomOnDoubleClick={false}" in canvas                            # 双击不误触缩放
+    assert "onEdit={(sid: string) => selectStep(sid, true)}" in editor
+    assert "if (openEditor) setParamsOpen(true)" in editor
+    assert "编辑参数" in canvas

@@ -15,7 +15,8 @@ export function PipelinesPage() {
   const [runFor, setRunFor] = useState<any>(null);
   const [inputs, setInputs] = useState<any>({});
   const [report, setReport] = useState<any>(null);
-  const [ack, setAck] = useState(false);
+  const [runMode, setRunMode] = useState<'direct' | 'plan'>('plan');
+  const [directAck, setDirectAck] = useState(false);
   const [busy, setBusy] = useState(false);
   const [confirmDel, setConfirmDel] = useState<any>(null);
   const [aiOpen, setAiOpen] = useState(false);
@@ -36,11 +37,11 @@ export function PipelinesPage() {
     catch (e: any) { toast(e.message, 'error'); }
   };
 
-  const openRun = async (p: any) => {
+  const openRun = async (p: any, mode: 'direct' | 'plan') => {
     try {
       const meta: any = await api.get(`/api/pipelines/${p.id}`);
       setRunFor({ ...p, inputsSchema: meta.inputs || { type: 'object', properties: {} } });
-      setInputs({}); setReport(null); setAck(false);
+      setInputs({}); setReport(null); setRunMode(mode); setDirectAck(false);
     } catch (e: any) { toast(e.message, 'error'); }
   };
 
@@ -51,19 +52,21 @@ export function PipelinesPage() {
       const r: any = await pollTask(t.task_id);
       setInputs(data); setReport(r);
       localStorage.setItem(`wfp-plan-${r.run_id}`, JSON.stringify(r));
-      toast('干跑完成，请查看 PlanReport 后再确认执行（DR-49）');
+      toast('干跑完成（零副作用）：仅生成 PlanReport，未写入任何文件；要真正执行请关闭后点「直接运行」', 'ok');
     } catch (e: any) { toast(e.message, 'error'); }
     finally { setBusy(false); }
   };
 
-  const apply = async () => {
-    if (!report) return;
-    if (report.confirm_required && !ack) { toast('存在不可补偿/不可预测步骤，必须显式勾选确认', 'warn'); return; }
+  const directRun = async (data: any) => {
+    if (!directAck) { toast('请先勾选「我已确认跳过干跑预览，直接执行」', 'warn'); return; }
     setBusy(true);
     try {
-      const t: any = await api.post(`/api/runs/${report.run_id}/apply`, { ack_risks: ack });
+      const t: any = await api.post('/api/runs/direct', {
+        pipeline: runFor.id, inputs: data, ack_risks: true,
+      });
       const r: any = await pollTask(t.task_id);
       toast(`执行完成：${r.status}`);
+      setRunFor(null);
       location.hash = `#/runs?id=${r.id}`;
     } catch (e: any) { toast(e.message, 'error'); }
     finally { setBusy(false); }
@@ -79,7 +82,7 @@ export function PipelinesPage() {
   </div>;
 
   return <div className="page">
-    <div className="page-head"><div><h1>工作项列表</h1><p className="sub">YAML 真源；一键运行先弹 inputs 表单，干跑预览 → 确认闸 → 执行（DR-42/49）</p></div>
+    <div className="page-head"><div><h1>工作项列表</h1><p className="sub">YAML 真源；每行提供「直接运行」（内部先干跑再确认执行）与「干跑」（仅预览、零副作用）两个入口（DR-30/31/42/49）</p></div>
       <div className="row"><button className="btn primary" onClick={() => setImportOpen(true)}>导入 YAML</button>
         <button className="btn" onClick={() => location.hash = '#/editor'}>拖拽新建</button>
         <button className="btn" onClick={() => setAiOpen(true)}>AI 草案</button>
@@ -94,7 +97,8 @@ export function PipelinesPage() {
               <td>{p.step_count || s?.steps || '-'}</td>
               <td>{s ? <Badge status={s.status} /> : '-'}</td><td>{s ? `${s.duration_ms}ms` : '-'}</td>
               <td><div className="row">
-                <button className="btn tiny primary" onClick={() => openRun(p)}>运行</button>
+                <button className="btn tiny primary" onClick={() => openRun(p, 'direct')}>直接运行</button>
+                <button className="btn tiny" onClick={() => openRun(p, 'plan')}>干跑</button>
                 <button className="btn tiny" onClick={() => location.hash = `#/editor?id=${p.id}`}>编排</button>
                 <button className="btn tiny" onClick={() => {
                   const id = prompt('复制为新工作项 ID：', `${p.id}-copy`);
@@ -112,21 +116,39 @@ export function PipelinesPage() {
       <div className="row end"><button className="btn primary" onClick={doImport}>导入为真源</button></div>
     </Modal>}
 
-    {runFor && <Modal title={`运行 ${runFor.id} · inputs / PlanReport / 确认闸`} wide onClose={() => setRunFor(null)}>
+    {runFor && <Modal title={runMode === 'direct' ? `直接运行 ${runFor.id} · 输入与确认` : `干跑 ${runFor.id} · PlanReport`}
+      wide onClose={() => setRunFor(null)}>
       {!report ? <div>
         <p className="muted">输入快照会写入 Run 记录，可用于复现（DR-27）。</p>
-        <SchemaForm schema={runFor.inputsSchema} formData={inputs} onChange={setInputs} onSubmit={plan}
-          submitId="wfp-plan-btn" submitLabel={busy ? '干跑中…' : '干跑（零副作用）'} />
+        {runMode === 'direct' ? <>
+          <div className="step-hint"><b>直接运行</b>：一次提交内部完成干跑并立即执行（DR-31/49），
+            不展示 PlanReport；仍会先做只读 plan 与人工确认闸，过程可在运行面板查看。</div>
+          <SchemaForm schema={runFor.inputsSchema} formData={inputs} onChange={setInputs} />
+          <div className="run-footer">
+            <label className="check"><input type="checkbox" checked={directAck}
+              onChange={(e) => setDirectAck(e.target.checked)} />
+              我已确认跳过干跑预览，直接执行（DR-49）</label>
+            <div className="row end">
+              <button id="wfp-direct-btn" className="btn primary" disabled={busy || !directAck}
+                onClick={() => directRun(inputs)}>{busy ? '执行中…' : '直接运行'}</button>
+            </div>
+          </div>
+        </> : <>
+          <div className="step-hint"><b>干跑</b>：只生成 PlanReport，零副作用、不写任何文件（DR-30/31）。
+            要真正执行请关闭本窗口后点「直接运行」。</div>
+          <SchemaForm schema={runFor.inputsSchema} formData={inputs} onChange={setInputs} onSubmit={plan}
+            submitId="wfp-plan-btn" submitLabel={busy ? '干跑中…' : '干跑（零副作用）'} />
+        </>}
       </div> : <div>
         <div className="row"><b>PlanReport</b><span className="mono">{report.run_id}</span>
           <Badge status={report.confirm_required ? '需要确认' : 'planned'} />
           <span className="tiny muted">sha256 {String(report.sha256).slice(0, 16)}…</span></div>
         <p className="tiny muted">{report.items.length} 步 · {report.risks.length} 项风险 · lint {report.lint.length} 条</p>
         <div className="report-scroll">{report.items.map(reportItem)}</div>
-        <label className="check"><input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} />
-          我已查看 diff / 风险 / 不可补偿项，确认执行（DR-49）</label>
-        <div className="row end"><button className="btn" onClick={() => setReport(null)}>返回修改 inputs</button>
-          <button id="wfp-apply-btn" className="btn primary" disabled={busy} onClick={apply}>确认执行</button></div>
+        <div className="run-footer"><div className="row end">
+          <button className="btn" onClick={() => setReport(null)}>返回修改 inputs</button>
+          <button className="btn" onClick={() => setRunFor(null)}>关闭（去点「直接运行」）</button>
+        </div></div>
       </div>}
     </Modal>}
 

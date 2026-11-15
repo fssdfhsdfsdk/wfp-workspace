@@ -141,3 +141,42 @@ Windows 本地运行，工作项位于 D 盘（如 `D:\myProject\wfp-workspace`�
 
 时间：
 2026-11-15
+
+## BUG-005 · 「运行」看起来只有干跑，第二阶段执行入口不醒目
+
+描述：
+点击工作项「运行」后只出现干跑/PlanReport，用户以为平台无法真正执行动作。
+复现用例为 `archive.pack@1.0.0`（`src: C:\Users\...\my_dev`、`dest: C:\Users\...\workspace`，
+`meta.allow_outside_workspace: true`）。
+
+背景与上下文：
+规格 DR-30/31/49 规定 `plan` 零副作用 → 人工确认闸 → `apply` 才真正执行，
+UI 也已实现 `plan()` / `apply()` 两个函数与 `POST /api/runs/{run_id}/apply` 端点。
+
+分析过程：
+1. 用用户原 YAML（路径替换为临时目录）走完整 REST 链路：
+   `POST /api/runs phase=plan` 返回 PlanReport 且磁盘无输出；
+   `POST /api/runs/{run_id}/apply {"ack_risks": true}` 返回 `succeeded` 并生成 `workspace.zip`。
+   说明后端执行能力正常，不是"无法运行"。
+2. 检查 `Pipelines.tsx`：按钮文案为「干跑（零副作用）」，PlanReport 出现后
+   「确认执行」位于可滚动 Modal 底部；`confirm_required && !ack` 时按钮仍可点，只弹 toast 后 return。
+3. 因此用户容易停在第一步，或点了按钮却没反应，形成"只有干跑"的观感。
+
+根因：
+两阶段流程缺少显式步骤编号，第二阶段确认区不常驻可见；
+未勾选确认时按钮未禁用，反馈只有一条容易被忽略的 toast。属交互缺陷，非执行缺陷。
+
+解决方法：
+1. 输入表单增加"运行分两步"提示，提交按钮改为「① 干跑预览（零副作用）」；
+   toast 明确写出"仅点干跑不会改变系统状态，需点 ②"。
+2. PlanReport 后新增 sticky `.run-footer`：显示「② 确认执行」说明，
+   按钮改为「② 确认执行（真正运行）」；`confirm_required && !ack` 时按钮 disabled 并显示原因。
+3. 回归用例 `tests/integration/test_run_two_step_flow.py`：验证干跑零副作用、
+   确认执行真正落盘，以及 bundle 含两阶段文案。
+4. 另给出 CLI 一步到位方式 `uv run wfp run <id> --yes`（仍经过确认闸）。
+5. 后续按用户要求进一步拆成「直接运行」「干跑」两个独立入口：
+   新增 `POST /api/runs/direct`（服务端内部 plan → apply，强制 `ack_risks`），
+   「干跑」按钮只生成 PlanReport、不再提供执行按钮。
+
+时间：
+2026-11-15

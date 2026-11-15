@@ -127,7 +127,7 @@ export function EditorPage({ params }: { params: URLSearchParams }) {
     setText(next); await saveYaml(next);
   };
 
-  const selectStep = async (sid: string) => {
+  const selectStep = async (sid: string, openEditor = false) => {
     setSelectedId(sid);
     const node = (activeGraph.nodes || []).find((n: any) => n.id === sid);
     if (!node) return;
@@ -138,7 +138,12 @@ export function EditorPage({ params }: { params: URLSearchParams }) {
       const v: any = await api.get(`/api/actions/${aid}/versions/${ver || '1.0.0'}`);
       setManifest(v.manifest);
     } catch { setManifest(null); }
-    setParamsOpen(true);   // 点击画布动作节点即可编辑参数
+    if (openEditor) setParamsOpen(true);   // 仅双击 / 「编辑参数」按钮打开；单击只选中
+  };
+
+  const openParams = () => {
+    if (!selectedId || !paramStep) { toast('请先单击选中一个动作节点', 'warn'); return; }
+    setParamsOpen(true);
   };
 
   const saveParams = async (next: any) => {
@@ -320,10 +325,10 @@ export function EditorPage({ params }: { params: URLSearchParams }) {
           <b className="mono">{a.id}</b><div className="tiny muted">{a.name} · {a.runtime}</div>
         </div>)}
         <div className="divider" />
-        <h3>步骤参数（点击画布节点编辑）</h3>
-        {!selectedId ? <Empty text="点击画布中的动作节点，编辑该动作的参数" /> : <>
+        <h3>步骤参数（单击选中 / 双击编辑）</h3>
+        {!selectedId ? <Empty text="单击画布节点选中，双击节点或点「编辑参数」按钮编辑" /> : <>
           <p className="tiny mono">{selectedId} · {manifest?.id || ''}</p>
-          <button className="btn primary tiny" onClick={() => setParamsOpen(true)}>编辑参数（可用列表 / 默认值 / 任意参数）</button>
+          <button className="btn primary tiny" onClick={openParams}>编辑参数</button>
           <div className="divider" />
           <h3>可用参数列表</h3>
           {!Object.keys(paramDefs).length ? <p className="tiny muted">该动作未声明 params，可添加任意参数。</p> :
@@ -342,7 +347,9 @@ export function EditorPage({ params }: { params: URLSearchParams }) {
       {mode !== 'yaml' && <Section title="图视图（React Flow 投影）" className="graph-section">
         <GraphCanvas graph={activeGraph} layout={activeLayout} selectedId={selectedId}
           onInsert={insertStep} onReorder={reorder} onDelete={removeSteps}
-          onSelect={selectStep} onLayoutChange={onLayoutChange} />
+          onSelect={(sid: string) => selectStep(sid)}
+          onEdit={(sid: string) => selectStep(sid, true)}
+          onLayoutChange={onLayoutChange} />
       </Section>}
 
       {mode !== 'graph' && <Section title={isDraft ? 'YAML 真源（保存后生成）' : `YAML 真源（Monaco） · sha ${sha.slice(0, 10)}`}

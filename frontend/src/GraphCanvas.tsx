@@ -53,7 +53,7 @@ export function dagreLayout(nodes: any[], edges: any[], direction = 'TB'): Recor
 }
 
 function Inner(props: any) {
-  const { graph, layout, selectedId, onInsert, onReorder, onDelete, onSelect, onLayoutChange } = props;
+  const { graph, layout, selectedId, onInsert, onReorder, onDelete, onSelect, onEdit, onLayoutChange } = props;
   const { screenToFlowPosition, fitView } = useReactFlow();
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState([]);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState([]);
@@ -103,20 +103,25 @@ function Inner(props: any) {
 
   return <div className="graph-canvas" onDrop={onDrop} onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}>
     <div className="graph-toolbar">
+      <button className="btn tiny primary" disabled={!selectedId}
+        onClick={() => selectedId && onEdit(selectedId)}>编辑参数</button>
       <button className="btn tiny" onClick={() => onLayoutChange(dagreLayout(computed.nodes, computed.edges, 'TB'))}>dagre 自动布局</button>
       <button className="btn tiny" onClick={() => onLayoutChange(dagreLayout(computed.nodes, computed.edges, 'LR'))}>横向布局</button>
       <button className="btn tiny danger" disabled={!selection.length}
         onClick={() => { onDelete(selection); setSelection([]); }}>删除选中（{selection.length}）</button>
       <button className="btn tiny" onClick={() => fitView({ padding: 0.2 })}>适应画布</button>
+      <span className="tiny muted graph-hint">单击选中 · 双击节点编辑参数</span>
     </div>
     <ReactFlow
       nodes={rfNodes} edges={rfEdges} nodeTypes={nodeTypes}
       onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
-      onNodeClick={(_, node) => onSelect(node.id)}
+      onNodeClick={(_, node) => onSelect(node.id)}          // 单击仅选中，不弹窗
+      onNodeDoubleClick={(_, node) => onEdit(node.id)}     // 双击才编辑参数
       onNodeDragStop={onDragStop} onConnect={onConnect}
       onNodesDelete={(deleted) => onDelete(deleted.map((n: any) => n.id))}
       onSelectionChange={({ nodes }: any) => setSelection(nodes.map((n: any) => n.id))}
       fitView minZoom={0.3} maxZoom={2} deleteKeyCode={['Backspace', 'Delete']}
+      zoomOnDoubleClick={false}
       multiSelectionKeyCode={['Meta', 'Control']}
     >
       <Background color="#2b3650" gap={18} />

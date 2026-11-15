@@ -95,7 +95,9 @@ tr.row-active td { background: rgba(91,140,255,.10); }
 .palette-item:hover { border-color: var(--accent); }
 .graph-section, .yaml-section { min-width: 0; }
 .graph-canvas { height: 520px; position: relative; }
-.graph-toolbar { position: absolute; top: 6px; right: 6px; z-index: 5; display: flex; gap: 6px; }
+.graph-toolbar { position: absolute; top: 6px; right: 6px; z-index: 5; display: flex; gap: 6px;
+  flex-wrap: wrap; justify-content: flex-end; align-items: center; max-width: 92%; }
+.graph-hint { flex-basis: 100%; text-align: right; }
 .react-flow { background: #0b101b; border: 1px solid var(--line); border-radius: 8px; }
 .rf-step { width: 250px; min-height: 76px; background: #22304e; border: 1px solid #4966a8;
   border-radius: 9px; padding: 8px 10px; font-size: 12px; }
@@ -115,6 +117,11 @@ tr.row-active td { background: rgba(91,140,255,.10); }
 .output-window { background: #0b101b; border: 1px solid var(--line); border-radius: 8px; padding: 12px;
   height: 520px; overflow: auto; white-space: pre-wrap; font-size: 12px; }
 .report-scroll { max-height: 380px; overflow: auto; }
+.step-hint { border: 1px dashed var(--line); border-radius: 8px; padding: 8px 10px; margin: 8px 0 12px;
+  font-size: 12px; color: var(--muted); }
+.step-hint b { color: var(--text); }
+.run-footer { position: sticky; bottom: 0; background: var(--panel); border-top: 1px solid var(--line);
+  padding: 10px 0 4px; margin-top: 10px; }
 .draft-form { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; align-items: end; margin-bottom: 12px; }
 .draft-form label { font-size: 12px; color: var(--muted, #8b98b5); }
 .draft-hint { grid-column: 1 / -1; }

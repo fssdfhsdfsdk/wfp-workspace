@@ -438,6 +438,17 @@ def create_app(paths: DataPaths | None = None, *, token: str | None = None,
                 ref, inputs, confirm=confirm, trigger="ui", plan_report=report))
         return {"task_id": tid, "status": "queued", "phase": phase}
 
+    @app.post("/api/runs/direct")
+    async def run_direct(request: Request) -> Any:
+        """DR-31/49：直接运行 = 内部先 plan 再 apply（yes 确认闸），一次提交完成。"""
+        body = await request.json()
+        ref = body.get("pipeline") or body.get("ref")
+        inputs = body.get("inputs") or {}
+        if not body.get("ack_risks"):
+            raise ContractError("直接运行必须显式确认风险（ack_risks=true）", path="ack_risks")
+        tid = manager.submit("apply", lambda: runner.apply(ref, inputs, yes=True, trigger="ui"))
+        return {"task_id": tid, "status": "queued", "phase": "apply"}
+
     @app.get("/api/runs")
     def run_list(pipeline_id: str | None = None, status: str | None = None) -> Any:
         return runs.list(pipeline_id=pipeline_id, status=status)

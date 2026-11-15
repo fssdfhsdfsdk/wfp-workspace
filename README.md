@@ -71,6 +71,8 @@ uv run wfp verify                                           # 完整性校验
 uv run wfp diagnostics                                      # 一键诊断包
 ```
 
+> 工作项每行提供两个入口：「**直接运行**」= 一次提交内部完成干跑并立即执行（仍需勾选人工确认闸，DR-31/49）；「**干跑**」= 只生成 PlanReport、零副作用、不写任何文件（DR-30/31）。REST 对应 `POST /api/runs/direct`（需 `ack_risks: true`）与 `POST /api/runs`（`phase: plan`）；CLI 等价为 `uv run wfp run <id> --yes` 与 `uv run wfp plan <id> --json`。
+
 退出码契约（DR-09）：`0` 成功、`2` 参数/校验错、`3` 执行失败、`4` 已取消、`5` 需人工介入。
 
 ### 1.1 启动配置（`config.toml`）
@@ -133,7 +135,7 @@ cd ..
 - `frontend/src/pages/Actions.tsx`：分类/搜索、CRUD、启停/复制、Monaco 实现体编辑、版本 diff、契约套件、单动作试跑。
 - `frontend/src/pages/Pipelines.tsx`：rjsf inputs 表单、干跑 → PlanReport（diff/风险/不可补偿）→ 确认闸 → 执行、复制/导出/删除二次确认。
 - `frontend/src/pages/Editor.tsx`：React Flow 图（拖拽插入、连线改序、多选删除、dagre 自动布局、when/loop 容器、撤销重做）⇄ Monaco YAML（300ms 防抖、lint 标记点击跳转）双栏；rjsf 参数表单只产出 `steps[i]` 最小 patch；布局写 `pipeline.layout.json`。
-- `frontend/src/StepParamsModal.tsx`：点击画布动作节点即打开参数编辑器，展示**可用参数列表**（manifest.params）、**修改默认参数**、增删**任意参数**（值支持 JSON），保存只替换 `steps[i].with`（DR-14/27/48）。
+- `frontend/src/StepParamsModal.tsx`：画布节点**单击仅选中，双击编辑参数**，也可点画布工具栏或右侧面板的「**编辑参数**」按钮；展示**可用参数列表**（manifest.params）、**修改默认参数**、增删**任意参数**（值支持 JSON），保存只替换 `steps[i].with`（DR-14/27/48）。
 - 工作项页「拖拽新建」→ 编排页无 `id` 时进入草稿模式：拖入动作按落点决定步骤顺序、连线/拖动改序、点击节点编辑参数，点「保存工作项」由后端 `POST /api/pipelines/draft` 生成并校验 YAML 真源，再写回布局。
 - `frontend/src/pages/Runs.tsx`：步骤树（循环/attempt）、SSE 日志（级别/关键字/步骤过滤、跟随暂停、ANSI、NDJSON 下载）、输出查看窗口、证据 diff/zip、取消/暂停/续跑/补偿/单步重试、md/html/csv 报表。
 - `frontend/src/pages/Nodes.tsx` / `History.tsx` / `Settings.tsx` / `AIDraft.tsx`：节点与凭据 CRUD、历史筛选与"相同输入重跑"、设置与备份恢复、AI 四道闸。

@@ -291,7 +291,11 @@ lint(ruff+mypy) → unit → integration → property(G3 阻塞) → build(web+w
 
 **前端重建（依据 `原始需求.md` L87-88）**：新增 `frontend/` Vite+React+TS 工程，按固定技术栈引入 React Flow（拖拽/连线/容器/dagre 自动布局/撤销重做）、Monaco（YAML/实现体/行级 diff/lint 标记）、rjsf（manifest.params 与 inputs 表单、path/node/secret 选择器）；产物离线写入 `wfp/web/dist`，FastAPI 托管 `/assets/*`。7 页补齐 inputs 表单、PlanReport 明细与确认闸、单动作试跑、动作 CRUD/版本 diff、工作项复制/导出/删除二次确认、步骤树/日志过滤/输出窗口/证据 zip、节点编辑、历史重跑、设置与备份恢复、AI 四道闸。同步修复 `plan→apply` 刷新后失效、patch 版本回写丢注释、`graph` 缺 `with` 参数等缺陷，并新增单动作试跑/证据 zip/日志下载/replay/节点编辑/维护下载等 REST 端点。
 
-**机器校验**：`pytest`（135 用例，2 个真实靶机用例默认 skip）、`ruff check`、`mypy wfp`、`tools/gen_traceability.py --check`、`--check-code`（84/84 DR 有代码与测试引用）、`tools/validate_examples.py --strict` 全绿。开发过程缺陷按固定字段记录在 `bug-tracks.md`（BUG-001 顶格序列缩进导致的 patch 500、BUG-004 Windows 跨盘符路径误报均已修复并回归）。
+**机器校验**：`pytest`（139 用例，2 个真实靶机用例默认 skip）、`ruff check`、`mypy wfp`、`tools/gen_traceability.py --check`、`--check-code`（84/84 DR 有代码与测试引用）、`tools/validate_examples.py --strict` 全绿。开发过程缺陷按固定字段记录在 `bug-tracks.md`（BUG-001 patch 500、BUG-004 跨盘符路径误报、BUG-005 运行两阶段入口不醒目均已修复并回归）。
+
+**运行双入口**：工作项列表每行提供「直接运行」（`POST /api/runs/direct`，服务端内部 plan→apply，`ack_risks` 强制人工确认）与「干跑」（`POST /api/runs` phase=plan，仅预览）两个按钮；验收见 `tests/integration/test_run_two_step_flow.py`。
+
+**编排交互**：画布节点单击仅选中，双击或「编辑参数」按钮才打开参数编辑器（`onNodeDoubleClick` + `zoomOnDoubleClick={false}`），避免每次点击都弹窗；源码级断言见 `tests/integration/test_dr44_drag_params.py`。
 
 **多 delta 最小 patch**：`POST /api/pipelines/{id}/patch` 在同一批编辑内逐个推进 `expected_sha`，修复第二个 delta 误判冲突（DR-45）；回归用例见 `tests/integration/test_dr40_react_frontend.py`。
 
