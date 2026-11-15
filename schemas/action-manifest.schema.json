@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wfp.local/schemas/action-manifest.schema.json",
+  "title": "WFP Action Manifest",
+  "description": "动作契约规范。Implements: DR-11, DR-17. 入库前必须通过校验。",
+  "type": "object",
+  "required": ["id", "version", "name", "runtime", "entry", "params", "capabilities"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9_.]*$", "description": "稳定标识，如 config.edit" },
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "description": { "type": "string" },
+    "category": { "type": "string", "examples": ["archive", "fs", "config", "net", "assert", "script", "remote"] },
+    "tags": { "type": "array", "items": { "type": "string" } },
+    "runtime": { "enum": ["builtin", "python", "powershell", "cmd", "remote"] },
+    "entry": {
+      "type": "object",
+      "description": "实现体入口。DR-12：解决『脚本缺少入口』(IR-14)",
+      "oneOf": [
+        { "required": ["module"], "properties": { "module": { "type": "string", "pattern": "^[\\w.]+:[\\w]+$" } } },
+        { "required": ["script"], "properties": { "script": { "type": "string" }, "argv": { "type": "array", "items": { "type": "string" } }, "callable": { "type": "string" } } },
+        { "required": ["command"], "properties": { "command": { "type": "string" } } },
+        { "required": ["operation"], "properties": { "operation": { "enum": ["exec", "upload", "download", "config_edit"] }, "transport": { "enum": ["ssh", "winrm", "auto"] } } }
+      ]
+    },
+    "params": { "type": "object", "description": "参数的 JSON Schema（DR-14）；字段可加 x-templatable/x-widget 扩展" },
+    "outputs": { "type": "object" },
+    "capabilities": {
+      "type": "object",
+      "description": "能力声明，缺失即拒绝入库（DR-17）",
+      "required": ["dry_run", "idempotent", "compensate", "needs_admin", "needs_network", "side_effects"],
+      "additionalProperties": false,
+      "properties": {
+        "dry_run": { "enum": ["plan", "none"] },
+        "idempotent": { "enum": ["yes", "conditional", "no"] },
+        "compensate": { "enum": ["supported", "manual", "none"] },
+        "needs_admin": { "type": "boolean" },
+        "needs_network": { "type": "boolean" },
+        "side_effects": { "enum": ["none", "local_fs", "remote_fs", "remote_exec", "destructive"] }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "timeout_seconds": { "type": "number", "minimum": 1, "default": 300 },
+        "retry": {
+          "type": "object", "additionalProperties": false,
+          "properties": {
+            "attempts": { "type": "integer", "minimum": 0, "default": 0 },
+            "backoff": { "enum": ["fixed", "exponential"], "default": "fixed" },
+            "delay_seconds": { "type": "number", "minimum": 0, "default": 2 }
+          }
+        },
+        "console": { "enum": ["hidden", "visible"], "default": "hidden", "description": "DR-36" },
+        "stdin": { "enum": ["closed"], "default": "closed" }
+      }
+    },
+    "plan": { "type": "object", "description": "dry_run=plan 时必填（DR-30）", "properties": { "entry": { "type": "object" } } },
+    "compensate": { "type": "object", "description": "compensate=supported 时必填（DR-34）", "properties": { "entry": { "type": "object" } } },
+    "evidence": { "type": "array", "items": { "enum": ["diff", "backup", "report", "transfer", "remote_result"] } },
+    "requirements": { "type": "array", "items": { "type": "string" }, "description": "python 依赖，用于 venv 指纹（DR-15）" },
+    "ui": { "type": "object", "description": "rjsf uiSchema 与自定义 widget（DR-48）" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "capabilities": { "properties": { "dry_run": { "const": "plan" } } } } },
+      "then": { "required": ["plan"], "description": "DR-30：声明可干跑必须提供只读 plan 入口" }
+    },
+    {
+      "if": { "properties": { "capabilities": { "properties": { "compensate": { "const": "supported" } } } } },
+      "then": { "required": ["compensate"], "description": "DR-34：声明可补偿必须提供补偿入口" }
+    },
+    {
+      "if": { "properties": { "runtime": { "const": "builtin" } } },
+      "then": { "properties": { "entry": { "required": ["module"] } } }
+    }
+  ]
+}

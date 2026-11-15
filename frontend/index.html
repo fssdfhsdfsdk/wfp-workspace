@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WFP · 通用流水线平台</title>
+</head>
+<body>
+  <div id="root"></div>
+  <!-- 无 JS/直达路由回退：7 个页面锚点（DR-40），React 启动后由应用接管 -->
+  <nav id="static-nav" aria-hidden="true">
+    <a href="#/actions">动作库</a><a href="#/pipelines">工作项</a><a href="#/editor">编排</a>
+    <a href="#/runs">运行面板</a><a href="#/nodes">节点与凭据</a><a href="#/history">历史与报表</a>
+    <a href="#/settings">设置</a>
+  </nav>
+  <script>window.WFP_TOKEN = "__WFP_TOKEN__";</script>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+</html>

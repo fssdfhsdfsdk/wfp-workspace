@@ -1,0 +1,40 @@
+# 动作契约示例：解压缩包
+# Implements: DR-17, DR-19, DR-32
+id: archive.extract
+version: 1.0.0
+name: 解压缩包
+description: 解压 zip/tar.gz 到目标目录；先列清单再解压；同名文件先备份。
+category: archive
+tags: [zip, tar, extract]
+runtime: builtin
+entry:
+  module: wfp.actions.archive:extract
+params:
+  type: object
+  required: [archive, dest]
+  additionalProperties: false
+  properties:
+    archive: { type: string, x-widget: path, x-templatable: true }
+    dest: { type: string, x-widget: directory, x-templatable: true }
+    overwrite: { type: boolean, default: false }
+    include: { type: array, items: { type: string }, default: ["**/*"] }
+    exclude: { type: array, items: { type: string }, default: [] }
+outputs:
+  type: object
+  properties:
+    extracted_files: { type: array, items: { type: string } }
+    skipped: { type: boolean }
+capabilities:
+  dry_run: plan
+  idempotent: "yes"
+  compensate: supported
+  needs_admin: false
+  needs_network: false
+  side_effects: local_fs
+policy:
+  timeout_seconds: 600
+plan:
+  entry: { module: wfp.actions.archive:plan_extract }
+compensate:
+  entry: { module: wfp.actions.archive:remove_extracted }
+evidence: [report, backup]

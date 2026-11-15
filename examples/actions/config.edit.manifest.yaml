@@ -1,0 +1,58 @@
+# 动作契约示例：修改配置文件（本地）
+# Implements: DR-11, DR-17, DR-19, DR-30, DR-33, DR-34
+id: config.edit
+version: 1.0.0
+name: 修改配置文件
+description: 按 key 路径修改 json/yaml/ini 配置；yaml 保留注释与键序；产出行级 diff 证据。
+category: config
+tags: [json, yaml, ini, config]
+runtime: builtin
+entry:
+  module: wfp.actions.config:edit
+params:
+  type: object
+  required: [path, edits]
+  additionalProperties: false
+  properties:
+    path:
+      type: string
+      description: 相对 workspace 或绝对路径（DR-24）
+      x-widget: path
+      x-templatable: true
+    format:
+      enum: [auto, json, yaml, ini]
+      default: auto
+    edits:
+      type: array
+      minItems: 1
+      items:
+        type: object
+        required: [key, value]
+        properties:
+          key: { type: string, description: "点路径或 JSONPath，如 server.port" }
+          value: {}
+          op: { enum: [set, merge, delete], default: set }
+    create_if_missing: { type: boolean, default: false }
+outputs:
+  type: object
+  properties:
+    changed: { type: boolean }
+    diff_artifact: { type: string }
+    new_sha256: { type: string }
+capabilities:
+  dry_run: plan          # 只读计算 diff，绝不写入（DR-30）
+  idempotent: "yes"       # 期望值已满足则 skipped_idempotent（DR-32）
+  compensate: supported  # 用前置备份还原（DR-33/34）
+  needs_admin: false
+  needs_network: false
+  side_effects: local_fs
+policy:
+  timeout_seconds: 60
+  console: hidden
+plan:
+  entry: { module: wfp.actions.config:plan_edit }
+compensate:
+  entry: { module: wfp.actions.config:restore_backup }
+evidence: [diff, backup]
+ui:
+  edits: { "ui:widget": "keyValueList" }

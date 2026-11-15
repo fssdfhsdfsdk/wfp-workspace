@@ -1,0 +1,44 @@
+# 动作契约示例：远程执行命令
+# 注意：通用命令无法保证干跑与幂等 —— 契约要求作者显式声明（RA-03/RA-04）
+# Implements: DR-12, DR-17, DR-54
+id: remote.exec
+version: 1.0.0
+name: 远程执行命令
+description: 在目标节点执行命令并回收 stdout/stderr/exit code；支持 sudo 与超时取消。
+category: remote
+tags: [ssh, winrm, exec]
+runtime: remote
+entry:
+  operation: exec
+  transport: auto
+params:
+  type: object
+  required: [command]
+  additionalProperties: false
+  properties:
+    command: { type: string, x-templatable: true }
+    cwd: { type: string, x-templatable: true }
+    sudo: { type: boolean, default: false }
+    readonly:
+      type: boolean
+      default: false
+      description: 声明为只读命令后，plan 阶段可真实执行以给出预测（否则 unpredictable）
+    expect_exit: { type: integer, default: 0 }
+outputs:
+  type: object
+  properties:
+    exit_code: { type: integer }
+    stdout: { type: string }
+    stderr: { type: string }
+capabilities:
+  dry_run: plan
+  idempotent: "no"         # 一般命令不可假定幂等；resume 需人工确认（DR-37）
+  compensate: manual      # 逆操作由作者提供或人工处理（DR-34）
+  needs_admin: false
+  needs_network: true
+  side_effects: remote_exec
+policy:
+  timeout_seconds: 300
+plan:
+  entry: { module: wfp.actions.remote:plan_exec }
+evidence: [remote_result]

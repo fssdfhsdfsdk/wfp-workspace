@@ -1,0 +1,30 @@
+# E2E-02：连接当前目标节点 → 修改远程 yaml（IR-16）
+# Implements: DR-51, DR-55
+apiVersion: wfp/v1
+meta:
+  id: remote-yaml-sample
+  name: 远端 YAML 配置修改
+  version: 1.0.0
+inputs:
+  type: object
+  required: [log_level]
+  properties:
+    log_level: { enum: [debug, info, warn, error], default: info }
+defaults:
+  node: current
+steps:
+  - id: r1
+    name: 修改远端 yaml（保留注释）
+    uses: remote.config_edit@1.0.0
+    with:
+      path: /opt/app/conf/app.yaml
+      format: yaml
+      edits:
+        - key: log.level
+          value: "{{ inputs.log_level }}"
+  - id: r2
+    name: 校验远端配置可读
+    uses: remote.exec@1.0.0
+    with:
+      command: "test -s /opt/app/conf/app.yaml"
+      readonly: true

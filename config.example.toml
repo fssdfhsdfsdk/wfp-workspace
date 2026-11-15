@@ -1,0 +1,27 @@
+# WFP 启动配置（无凭据；本机 token 存于数据目录 session.json）
+# 生成模板：wfp config init     查看生效值：wfp config show
+# 查找顺序：--config / WFP_CONFIG 指定文件 > <WFP_HOME>/config.toml > 内置默认值
+# 优先级：CLI 参数 > 配置文件 > 默认值；数据目录：--home > WFP_HOME > data_dir > 系统默认
+
+[server]
+port = 8765
+host = "127.0.0.1"
+lan = false
+open_browser = false
+log_level = "info"
+
+[storage]
+# 留空表示使用 WFP_HOME 或系统默认数据目录；也可写绝对路径
+data_dir = ""
+# 留空表示 <data_dir>/wfp.db；可写文件名或绝对路径
+db_file = ""
+retention_days = 30
+retention_max_bytes = 5368709120
+log_quota_mb = 200
+
+[engine]
+default_timeout_seconds = 300
+
+[features]
+ai_enabled = false
+current_node = ""

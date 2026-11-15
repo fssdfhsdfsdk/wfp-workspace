@@ -1,0 +1,141 @@
+# ============================================================
+# E2E-01 部署流水线（客户重复性动作例子 1，IR-15）
+# 本文件是 round-trip 无损测试的基准语料之一：
+#   - 含行首注释、行尾注释、块注释、中文、空行
+#   - 图编辑只允许对 steps[i] 产生最小 patch（DR-45）
+# Implements: DR-20, DR-24, DR-26, DR-51, DR-55, DR-56
+# ============================================================
+apiVersion: wfp/v1
+
+meta:
+  id: deploy-sample
+  name: 示例部署流水线
+  description: 移动压缩包 → 解压 → 校验配置 → 改本地 json → 远程发布 → 改远端 json → 重启校验
+  version: 1.0.0
+  # workdir 默认取本文件所在目录；相对路径一律基于它（DR-24）
+
+inputs:
+  type: object
+  required: [package, env]
+  properties:
+    package:
+      type: string
+      description: 待发布压缩包（相对 workspace）
+      default: build/app-1.4.2.zip
+    env:
+      enum: [dev, staging, prod]
+      default: staging
+    remote_dir:
+      type: string
+      default: /opt/app
+
+vars:
+  app_dir: "{{ inputs.remote_dir }}/current"
+  config_rel: "conf/app.json"      # 行尾注释：相对路径，存在性在 s3 校验
+
+defaults:
+  node: current                    # 使用顶栏"当前目标节点"（DR-51）
+  timeout_seconds: 300
+  on_error: fail                   # 任一步失败即终止（IR-15 语义）
+
+steps:
+  - id: s1
+    name: 移动压缩包到目标目录
+    uses: fs.move@1.0.0
+    with:
+      src: "{{ inputs.package }}"
+      dest: "work/{{ inputs.package | basename }}"
+
+  - id: s2
+    name: 解压到当前目录
+    uses: archive.extract@1.0.0
+    with:
+      archive: "work/{{ inputs.package | basename }}"
+      dest: work/app
+      overwrite: false
+
+  # 关键校验：目标配置文件不存在则报错退出（客户明确要求）
+  - id: s3
+    name: 检测目标配置文件是否存在
+    uses: assert.file_exists@1.0.0
+    with:
+      path: "work/app/{{ vars.config_rel }}"
+    on_error: fail
+
+  - id: s4
+    name: 修改本地 json 配置
+    uses: config.edit@1.0.0
+    with:
+      path: "work/app/{{ vars.config_rel }}"
+      format: json
+      edits:
+        - key: env
+          value: "{{ inputs.env }}"
+        - key: server.port
+          value: 8080
+    register: local_cfg
+
+  - id: s5
+    name: 远程命令 1（前置检查）
+    uses: remote.exec@1.0.0
+    with:
+      command: "test -d {{ vars.app_dir }} || mkdir -p {{ vars.app_dir }}"
+      readonly: false
+
+  - id: s6
+    name: 上传文件夹与 2 个文件
+    uses: remote.upload@1.0.0
+    with:
+      items:
+        - local: work/app/
+          remote: "{{ vars.app_dir }}/"
+          recursive: true
+        - local: "work/app/{{ vars.config_rel }}"
+          remote: "{{ vars.app_dir }}/{{ vars.config_rel }}"
+        - local: scripts/start.sh
+          remote: "{{ vars.app_dir }}/start.sh"
+      exclude: ["**/*.pyc", "**/__pycache__/**"]
+
+  - id: s7
+    name: 编辑远端 json 配置
+    uses: remote.config_edit@1.0.0
+    with:
+      path: "{{ vars.app_dir }}/{{ vars.config_rel }}"
+      format: json
+      edits:
+        - key: env
+          value: "{{ inputs.env }}"
+        - key: log.level
+          value: info
+    # 远端事务：备份 → tmp → 原子 rename → hash 校验（DR-55）
+
+  - id: s8
+    name: 远程命令 2（重启服务）
+    uses: remote.exec@1.0.0
+    with:
+      command: "systemctl restart app"
+      sudo: true
+    retry:
+      attempts: 2
+      backoff: exponential
+      delay_seconds: 3
+    compensate:
+      mode: manual                 # 重启不可自动逆操作 → 人工清单（DR-34）
+
+  - id: s9
+    name: 远程命令 3（健康检查）
+    uses: remote.exec@1.0.0
+    with:
+      command: "curl -fsS http://127.0.0.1:8080/health"
+      readonly: true
+    retry:
+      attempts: 3
+      delay_seconds: 5
+
+  - id: s10
+    name: 收尾校验（本地配置哈希）
+    uses: assert.checksum@1.0.0
+    when: "inputs.env != 'dev'"
+    with:
+      path: "work/app/{{ vars.config_rel }}"
+      expect_sha256: "{{ local_cfg.new_sha256 }}"

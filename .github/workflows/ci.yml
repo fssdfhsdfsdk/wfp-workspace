@@ -1,0 +1,45 @@
+name: WFP CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  gates:
+    name: G0-G4 门禁（G3 含 round-trip 阻塞门禁）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: 构建离线前端（React Flow / Monaco / rjsf）
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+      - name: 安装（含 dev/remote 可选依赖）
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,remote]"
+      - name: 契约与追溯校验
+        run: |
+          python tools/validate_examples.py --strict
+          python tools/gen_traceability.py --check
+          python tools/gen_traceability.py --check-code
+      - name: 静态门禁（DR-74）
+        run: |
+          ruff check wfp tools tests
+          mypy wfp
+      - name: 分层测试（真实靶机用例默认跳过）
+        run: python -m pytest -m "not remote" --junitxml=docs/gates/junit.xml
+      - name: 归档 JUnit 证据
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wfp-gate-evidence
+          path: docs/gates/junit.xml
+          if-no-files-found: ignore
