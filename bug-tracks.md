@@ -104,3 +104,40 @@ steps:
 
 时间：
 2026-11-15
+
+## BUG-004 · Windows 跨盘符路径被误报"路径无法解析"（DR-24）
+
+描述：
+在动作参数里填 `C:\Users\Administrator\Downloads\my_dev` 时报错
+`路径无法解析：C:\Users\Administrator\Downloads\my_dev`（WFP-L020），路径实际存在且合法。
+
+背景与上下文：
+Windows 本地运行，工作项位于 D 盘（如 `D:\myProject\wfp-workspace`），
+用户填的是 C 盘绝对路径。DR-24 规定相对路径基于 workspace 根、默认禁止越界，
+越界需 `meta.allow_outside_workspace: true` 显式开启。
+
+分析过程：
+1. 全局检索该文案，唯一定位 `wfp/engine/expr.py::resolve_local_path`。
+2. 该函数用 `os.path.commonpath([str(base), str(target)])` 判断是否越界；
+   Windows 上两个路径分属 C: 与 D: 时，标准库直接抛 `ValueError: Paths are on different drives`。
+3. 该 `ValueError` 被捕获后包装成 `PathError("路径无法解析：...")`，
+   把"越界"误报成"无法解析"，且没有给出任何可操作的解决办法。
+4. 进一步检查发现视图侧没有配置 `meta.workdir` / `allow_outside_workspace` 的入口，
+   用户只能手写 YAML，和"通过视图操作"的诉求冲突。
+
+根因：
+用 `commonpath` 做跨盘符比较本身会抛异常，异常分类错误；
+同时缺少视图化的 workspace 根与越界开关配置。
+
+解决方法：
+1. `resolve_local_path` 改用 `Path.is_relative_to(base)` 判定，跨盘符/UNC 返回 False 即越界；
+   任何 `ValueError/OSError` 也统一归为"路径越界"，消息里给出两种解决办法，不再出现"路径无法解析"。
+2. 新增 `PUT /api/pipelines/{id}/meta`：以 round-trip 方式设置/清除
+   `meta.workdir` 与 `meta.allow_outside_workspace`，产生新版本且保留注释。
+3. `POST /api/pipelines/draft` 支持同两个字段；编排页新增「路径设置」弹窗与草稿表单的
+   workspace 根输入 / 允许越界复选框。
+4. 回归用例 `tests/integration/test_dr24_windows_paths.py`（4 个），
+   含 monkeypatch 模拟 `commonpath` 抛 ValueError 的错误分类验证。
+
+时间：
+2026-11-15

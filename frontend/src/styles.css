@@ -115,8 +115,9 @@ tr.row-active td { background: rgba(91,140,255,.10); }
 .output-window { background: #0b101b; border: 1px solid var(--line); border-radius: 8px; padding: 12px;
   height: 520px; overflow: auto; white-space: pre-wrap; font-size: 12px; }
 .report-scroll { max-height: 380px; overflow: auto; }
-.draft-form { display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: 12px; align-items: end; margin-bottom: 12px; }
+.draft-form { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; align-items: end; margin-bottom: 12px; }
 .draft-form label { font-size: 12px; color: var(--muted, #8b98b5); }
+.draft-hint { grid-column: 1 / -1; }
 .param-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .param-table th, .param-table td { border-bottom: 1px solid var(--line, #2b3650); padding: 6px 4px; text-align: left; vertical-align: top; }
 .param-row { display: grid; grid-template-columns: 1fr 1.5fr auto; gap: 6px; margin-bottom: 6px; }

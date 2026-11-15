@@ -307,9 +307,13 @@ def create_app(paths: DataPaths | None = None, *, token: str | None = None,
             if isinstance(s.get("loop"), dict):
                 step["loop"] = s["loop"]
             steps.append(step)
+        meta: dict[str, Any] = {"id": pid, "name": str(body.get("name") or pid), "version": "1.0.0"}
+        if body.get("workdir"):
+            meta["workdir"] = str(body["workdir"])
+        if body.get("allow_outside_workspace"):
+            meta["allow_outside_workspace"] = True
         doc: dict[str, Any] = {
-            "apiVersion": "wfp/v1",
-            "meta": {"id": pid, "name": str(body.get("name") or pid), "version": "1.0.0"},
+            "apiVersion": "wfp/v1", "meta": meta,
             "inputs": body.get("inputs") or {"type": "object", "properties": {}},
             "steps": steps,
         }
@@ -320,6 +324,28 @@ def create_app(paths: DataPaths | None = None, *, token: str | None = None,
         p = pipelines.get(pipeline_id)
         return {"id": pipeline_id, "version": p.version, "sha256": p.sha256,
                 "steps": len(p.steps), "inputs": p.inputs_schema, "meta": p.meta}
+
+    @app.put("/api/pipelines/{pipeline_id}/meta")
+    async def pipeline_meta_put(pipeline_id: str, request: Request) -> Any:
+        """DR-24：视图设置 workspace 根 / 越界开关；改 meta 并产生新版本，注释保真。"""
+        body = await request.json()
+        text, sha = pipelines.yaml_text(pipeline_id)
+        doc = YamlDoc(text)
+        meta = doc.doc.get("meta")
+        if not isinstance(meta, dict):
+            raise ContractError("工作项缺少 meta", path="meta")
+        if "workdir" in body:
+            wd = str(body.get("workdir") or "").strip()
+            if wd:
+                meta["workdir"] = wd
+            else:
+                meta.pop("workdir", None)
+        if "allow_outside_workspace" in body:
+            if bool(body["allow_outside_workspace"]):
+                meta["allow_outside_workspace"] = True
+            else:
+                meta.pop("allow_outside_workspace", None)
+        return pipelines.save_yaml(pipeline_id, doc.dump(), if_match=sha)
 
     @app.delete("/api/pipelines/{pipeline_id}")
     def pipeline_delete(pipeline_id: str) -> Any:

@@ -37,6 +37,10 @@ export function EditorPage({ params }: { params: URLSearchParams }) {
   const [diffText, setDiffText] = useState('');
   const [draftId, setDraftId] = useState('');
   const [draftName, setDraftName] = useState('');
+  const [draftWorkdir, setDraftWorkdir] = useState('');
+  const [draftAllowOutside, setDraftAllowOutside] = useState(false);
+  const [metaOpen, setMetaOpen] = useState(false);
+  const [metaForm, setMetaForm] = useState<any>({ workdir: '', allow_outside_workspace: false });
   const [draftSteps, setDraftSteps] = useState<any[]>([]);
   const [draftLayout, setDraftLayout] = useState<any>({ positions: {}, collapsed: [], groups: {} });
   const [saving, setSaving] = useState(false);
@@ -246,12 +250,29 @@ export function EditorPage({ params }: { params: URLSearchParams }) {
     try {
       const r: any = await api.post('/api/pipelines/draft', {
         id: draftId.trim(), name: draftName.trim() || draftId.trim(), steps: draftSteps,
+        workdir: draftWorkdir.trim(), allow_outside_workspace: draftAllowOutside,
       });
       await api.put(`/api/pipelines/${r.id}/layout`, draftLayout);
       toast(`已保存 ${r.id}@${r.version}（${draftSteps.length} 步）`);
       location.hash = `#/editor?id=${r.id}`;
     } catch (e: any) { toast(e.message, 'error'); }
     finally { setSaving(false); }
+  };
+
+  const openMeta = async () => {
+    try {
+      const p: any = await api.get(`/api/pipelines/${id}`);
+      setMetaForm({ workdir: p.meta?.workdir || '', allow_outside_workspace: !!p.meta?.allow_outside_workspace });
+      setMetaOpen(true);
+    } catch (e: any) { toast(e.message, 'error'); }
+  };
+
+  const saveMeta = async () => {
+    try {
+      await api.put(`/api/pipelines/${id}/meta`, metaForm);
+      toast('workspace 根 / 越界设置已保存（生成新版本）');
+      setMetaOpen(false); await refresh();
+    } catch (e: any) { toast(e.message, 'error'); }
   };
 
   const paramDefs: Record<string, any> = manifest?.params?.properties || {};
@@ -267,6 +288,7 @@ export function EditorPage({ params }: { params: URLSearchParams }) {
           <button className="btn tiny" onClick={undo} disabled={!history.length}>撤销 ({history.length})</button>
           <button className="btn tiny" onClick={redo} disabled={!future.length}>重做</button>
           <button id="wfp-save-btn" className="btn tiny" onClick={() => saveYaml(text)}>保存 YAML</button>
+          <button className="btn tiny" onClick={openMeta}>路径设置</button>
           <button className="btn tiny" onClick={runLint}>lint</button>
           <button className="btn tiny" onClick={async () => { const d: any = await api.get(`/api/pipelines/${id}/yaml`); setDiffText(d.text); setDiffOpen(true); }}>与上一版 diff</button>
         </>}
@@ -280,7 +302,14 @@ export function EditorPage({ params }: { params: URLSearchParams }) {
         onChange={(e) => setDraftId(e.target.value)} /></label>
       <label>名称<br /><input className="input" value={draftName} placeholder="留空则使用 ID"
         onChange={(e) => setDraftName(e.target.value)} /></label>
-      <div className="tiny muted">从左侧动作面板拖入动作 → 点击节点编辑参数 → 连线/拖动改序 → 保存工作项（YAML 真源由后端生成并校验）。</div>
+      <label>workspace 根（可选，建议填 Windows 绝对路径）<br />
+        <input className="input" value={draftWorkdir} placeholder="C:/Users/Administrator/Downloads/my_dev"
+          onChange={(e) => setDraftWorkdir(e.target.value)} /></label>
+      <label className="check"><input type="checkbox" checked={draftAllowOutside}
+        onChange={(e) => setDraftAllowOutside(e.target.checked)} />
+        允许访问 workspace 之外的绝对路径（DR-24）</label>
+      <div className="tiny muted draft-hint">从左侧动作面板拖入动作 → 点击节点编辑参数 → 连线/拖动改序 → 保存工作项。
+        相对路径基于 workspace 根；绝对路径与它不在同一盘符时，请把该目录设为 workspace 根或勾选允许越界。</div>
     </div>}
 
     <div className={`grid cols3 ${mode === 'both' ? '' : 'single'}`}>
@@ -333,6 +362,19 @@ export function EditorPage({ params }: { params: URLSearchParams }) {
 
     {paramsOpen && paramStep && <StepParamsModal stepId={paramStep.id} uses={paramStep.uses || ''}
       manifest={manifest} params={paramStep.with || {}} onClose={() => setParamsOpen(false)} onSave={saveParams} />}
+
+    {!isDraft && metaOpen && <Modal title="路径设置（workspace 根 / 越界）" onClose={() => setMetaOpen(false)}>
+      <p className="tiny muted">相对路径基于 workspace 根，默认禁止解析到其外。Windows 跨盘符绝对路径
+        （如 C:/Users/... 而工作项在 D 盘）需把该目录设为 workspace 根，或显式允许越界（DR-24）。</p>
+      <label>workspace 根（绝对路径）<br />
+        <input className="input" value={metaForm.workdir} placeholder="C:/Users/Administrator/Downloads/my_dev"
+          onChange={(e) => setMetaForm({ ...metaForm, workdir: e.target.value })} /></label>
+      <label className="check"><input type="checkbox" checked={metaForm.allow_outside_workspace}
+        onChange={(e) => setMetaForm({ ...metaForm, allow_outside_workspace: e.target.checked })} />
+        允许访问 workspace 之外的绝对路径</label>
+      <div className="row end"><button className="btn" onClick={() => setMetaOpen(false)}>取消</button>
+        <button className="btn primary" onClick={saveMeta}>保存设置</button></div>
+    </Modal>}
 
     {!isDraft && diffOpen && <Modal title="YAML 与上一版 diff（Monaco）" wide onClose={() => setDiffOpen(false)}>
       <DiffView before={diffText} after={text} height={420} />

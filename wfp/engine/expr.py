@@ -86,10 +86,15 @@ def resolve_local_path(value: str, workspace: Path, allow_outside: bool = False)
     target = (raw if raw.is_absolute() else base / raw).resolve()
     if not allow_outside:
         try:
-            if os.path.commonpath([str(base), str(target)]) != str(base):
-                raise PathError(f"路径越界：{value} → {target}（需 allow_outside_workspace: true）")
-        except ValueError as exc:
-            raise PathError(f"路径无法解析：{value}") from exc
+            inside = target.is_relative_to(base)
+        except (ValueError, OSError) as exc:
+            # Windows 跨盘符 / UNC 与本地路径不可比较时仍属越界，
+            # 不能误报成"路径无法解析"（commonpath 会抛 ValueError）。
+            raise PathError(f"路径越界：{value} → {target}（与 workspace 不在同一路径根；"
+                            "请把 meta.workdir 设为该目录，或开启 allow_outside_workspace: true）") from exc
+        if not inside:
+            raise PathError(f"路径越界：{value} → {target}（需 allow_outside_workspace: true，"
+                            "或把 meta.workdir 设为该目录）")
     return target
 
 

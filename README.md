@@ -140,6 +140,15 @@ cd ..
 
 Vite 构建产物在 `wfp/web/dist/`，由 FastAPI `StaticFiles` 托管 `/assets/*`，**运行期不请求任何 CDN**（DR-07）。`npm run build` 还会生成兼容入口 `/app.js`、`/style.css`。
 
+### 1.3 Windows 路径与 workspace（DR-24）
+
+相对路径基于 workspace 根（默认工作项 YAML 所在目录）。填 `C:\Users\Administrator\Downloads\my_dev` 这类绝对路径时，若工作项在 D 盘，会因**跨盘符被判定越界**（旧版本误报「路径无法解析」，见 `bug-tracks.md` BUG-004）。两种做法：
+
+- 编排页「路径设置」→ 把 **workspace 根**设为 `C:/Users/Administrator/Downloads/my_dev`，相对路径即基于它；
+- 或勾选「允许访问 workspace 之外的绝对路径」（写入 `meta.allow_outside_workspace: true`）。
+
+拖拽新建工作项时，草稿表单同样提供这两项。YAML 里写 Windows 路径建议用正斜杠 `C:/Users/...` 或单引号，避免双引号标量中的 `\U` 被当成转义。
+
 ## 2. 已实现的工程能力
 
 | 层 | 交付内容 | 主要 DR |
