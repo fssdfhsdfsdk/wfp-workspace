@@ -212,8 +212,17 @@ def _apply_pack(ctx: ActionContext) -> ApplyResult:
     for suffix in (".zip", ".tar.gz"):
         if base.endswith(suffix):
             base = base[:-len(suffix)]
-    out = shutil.make_archive(base, "gztar" if fmt == "tar.gz" else "zip", src)
-    return ApplyResult(outputs={"archive": out, "sha256": sha256_bytes(Path(out).read_bytes())})
+    out = Path(base + (".tar.gz" if fmt == "tar.gz" else ".zip"))
+    try:
+        # dest 落在 src 内会让 shutil.make_archive 把正在生成的压缩包打进自身，
+        # 文件持续膨胀且任务永不结束（用户反馈的"压缩文件夹持续未完成"）。
+        if out.resolve().is_relative_to(src.resolve()):
+            raise ContractError(f"打包输出不能位于源目录内（自包含递归）：{out}；请把 dest 放到源目录之外",
+                                path="dest")
+    except (ValueError, OSError):
+        pass
+    archive = shutil.make_archive(base, "gztar" if fmt == "tar.gz" else "zip", src)
+    return ApplyResult(outputs={"archive": archive, "sha256": sha256_bytes(Path(archive).read_bytes())})
 
 
 def _apply_copy(ctx: ActionContext) -> ApplyResult:

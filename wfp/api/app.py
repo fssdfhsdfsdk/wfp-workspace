@@ -45,6 +45,17 @@ from wfp.sync.patch import GraphDelta, YamlDoc, prune_layout
 DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
 
 
+def sse_frame(ev: dict[str, Any]) -> str:
+    """DR-61：SSE 帧只发 id/data，不发 event: 命名事件。
+
+    EventSource.onmessage 仅接收默认 message 类型；若发送 `event: run.started` 这类命名事件，
+    浏览器会分发给对应 addEventListener 而未注册时直接丢弃，日志面板将永远显示"等待事件…"。
+    事件类型已在 data.type 中，Last-Event-ID 续传由 id: 提供。
+    """
+    seq = int(ev["seq"])
+    return f"id: {seq}\ndata: {json.dumps(ev, ensure_ascii=False)}\n\n"
+
+
 class RunManager:
     """排队 + 后台执行；apply 全局互斥由 Runner 内部锁保证（DR-02/39）。"""
 
@@ -505,7 +516,7 @@ def create_app(paths: DataPaths | None = None, *, token: str | None = None,
                 for ev in EventWriter.tail(path, after):
                     found = True
                     after = int(ev["seq"])
-                    yield f"id: {after}\nevent: {ev['type']}\ndata: {json.dumps(ev, ensure_ascii=False)}\n\n"
+                    yield sse_frame(ev)
                 if found:
                     idle = 0.0
                 else:

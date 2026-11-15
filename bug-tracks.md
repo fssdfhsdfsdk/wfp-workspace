@@ -180,3 +180,45 @@ UI 也已实现 `plan()` / `apply()` 两个函数与 `POST /api/runs/{run_id}/ap
 
 时间：
 2026-11-15
+
+## BUG-006 · 直接运行压缩文件夹后「持续未完成」、SSE 无事件、控制台无限轮询
+
+描述：
+点「直接运行」压缩文件夹后，运行面板一直显示"等待事件…（SSE，Last-Event-ID 续传）"，
+控制台每 1.5 秒刷一条 `GET /api/runs/r-... 200 OK`，用户判断任务持续未完成。
+
+背景与上下文：
+Windows 本地运行，`archive.pack@1.0.0` 打包目录；`POST /api/runs/direct` 后已跳转到运行面板
+（说明 `/api/tasks/{id}` 轮询已结束，apply 任务其实返回了）。SSE 连接 200 但前端收不到任何事件。
+
+分析过程：
+1. 用 `tests/integration/test_run_two_step_flow.py` 验证直接运行链路：task 返回 `succeeded`、
+   压缩包生成、`events.ndjson` 含 `run.finished` —— 后端执行本身已完成。
+2. `wfp/api/app.py::run_events` 的 SSE 帧为
+   `id: <seq>\nevent: <type>\ndata: <json>\n\n`；浏览器 `EventSource.onmessage` 只接收
+   默认 `message` 事件，命名事件需 `addEventListener(type, ...)`，未注册即被丢弃，
+   于是日志面板永远空白。
+3. `frontend/src/pages/Runs.tsx` 的 `setInterval(load, 1500)` 没有终态判断，
+   run 已 `succeeded` 仍持续轮询，控制台刷屏进一步造成"未完成"错觉。
+4. 顺带排查 `wfp/actions/builtin.py::_apply_pack`：若 `dest` 位于 `src` 目录内，
+   `shutil.make_archive` 会把正在写入的压缩包打进自身，文件无限膨胀、任务真正永不结束，
+   是"压缩文件夹"场景的潜在硬卡死路径。
+
+根因：
+SSE 帧的事件类型分发与前端监听方式不匹配；前端轮询缺少终态退出；
+打包输出落在源目录内缺少防护。三者叠加造成"任务一直没完成"的观感与风险。
+
+解决方法：
+1. 新增 `wfp/api/app.py::sse_frame()`：只发 `id:` + `data:`（事件类型已在 `data.type`），
+   不再发 `event:`，`Last-Event-ID` 续传仍由 `id:` 保证。
+2. `Runs.tsx`：终态（`finished_at` 或终态状态集合）后 `clearInterval`；
+   标题显示「已完成 + 完成时间」/「进行中…」；日志行由只显示 `HH:MM:SS` 改为完整日期时间。
+3. `_apply_pack`：输出路径若 `is_relative_to(src)` 则抛 `ContractError`
+   「打包输出不能位于源目录内（自包含递归）」，动作记为 failed，不再无限打包。
+4. 控制台日志增强：`wfp/cli.py::_uvicorn_log_config` 给 uvicorn 访问/错误日志加
+   `%(asctime)s`（`%Y-%m-%d %H:%M:%S`），启动 print 也带时间戳。
+5. 回归用例 `tests/integration/test_sse_console_log.py`（4 个）与
+   `test_run_two_step_flow.py` 追加完成事件断言。
+
+时间：
+2026-11-15

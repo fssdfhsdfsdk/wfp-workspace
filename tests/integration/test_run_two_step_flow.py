@@ -7,6 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from wfp.api.app import create_app
+from wfp.engine.journal import EventWriter
 
 TOKEN = "run-flow-token"
 HEADERS = {"X-WFP-Token": TOKEN, "Host": "127.0.0.1:8765"}
@@ -106,3 +107,6 @@ def test_direct_run_requires_ack_and_really_executes(web, env) -> None:
     result = _poll(client, ok.json()["task_id"])
     assert result["status"] == "succeeded", result
     assert Path(f"{dest_base}.zip").is_file()
+    # 任务确实完成且写下了完成事件；之前 UI 看不到只是 SSE 命名事件被丢弃
+    events_file = env.paths.logs / result["id"] / "events.ndjson"
+    assert any(ev["type"] == "run.finished" for ev in EventWriter.tail(events_file))

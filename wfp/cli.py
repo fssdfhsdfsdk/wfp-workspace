@@ -31,6 +31,34 @@ from wfp.store.pipelines import PipelineStore
 from wfp.store.runs import RunStore
 
 
+def _uvicorn_log_config(level: str) -> dict[str, Any]:
+    """控制台日志增强：uvicorn 访问/错误日志统一带日期时间（DR-60）。"""
+    lv = str(level or "info").upper()
+    datefmt = "%Y-%m-%d %H:%M:%S"
+    return {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "default": {"()": "uvicorn.logging.DefaultFormatter",
+                        "fmt": "%(asctime)s %(levelprefix)s %(message)s", "datefmt": datefmt},
+            "access": {"()": "uvicorn.logging.AccessFormatter",
+                       "fmt": "%(asctime)s %(levelprefix)s %(client_addr)s - "
+                              "\"%(request_line)s\" %(status_code)s", "datefmt": datefmt},
+        },
+        "handlers": {
+            "default": {"formatter": "default", "class": "logging.StreamHandler",
+                        "stream": "ext://sys.stderr"},
+            "access": {"formatter": "access", "class": "logging.StreamHandler",
+                       "stream": "ext://sys.stdout"},
+        },
+        "loggers": {
+            "uvicorn": {"handlers": ["default"], "level": lv, "propagate": False},
+            "uvicorn.error": {"level": lv},
+            "uvicorn.access": {"handlers": ["access"], "level": "INFO", "propagate": False},
+        },
+    }
+
+
 @contextmanager
 def services(setting: str | Config | None = None) -> Iterator[dict[str, Any]]:
     """打开服务上下文；setting 可为数据目录或已解析的启动配置。"""
@@ -250,12 +278,14 @@ def dispatch(args: argparse.Namespace, svc: dict[str, Any]) -> int:
         app = create_app(cfg.require_paths(), config=cfg,
                          token=args.token or (password if cfg.lan else None))
         url = f"http://127.0.0.1:{cfg.port}/"
-        print(f"WFP 已启动：{url}  config={cfg.source}  data_dir={cfg.require_paths().root}")
-        print(f"本机 token={app.state.wfp['token']}（也存于 session.json）")
+        from datetime import datetime
+        stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        print(f"[{stamp}] WFP 已启动：{url}  config={cfg.source}  data_dir={cfg.require_paths().root}")
+        print(f"[{stamp}] 本机 token={app.state.wfp['token']}（也存于 session.json）")
         if cfg.open_browser:
             webbrowser.open(url)
         uvicorn.run(app, host="0.0.0.0" if cfg.lan else cfg.host, port=cfg.port,
-                    log_level=cfg.log_level)
+                    log_level=cfg.log_level, log_config=_uvicorn_log_config(cfg.log_level))
         return 0
     if cmd == "doctor":
         result = run_doctor(svc["paths"], store=svc["store"], verify=args.verify,

@@ -7,6 +7,9 @@ import { DiffView } from '../Monaco';
 import { Badge, Empty, Modal, Section } from '../ui';
 
 const ANSI = /\x1b\[[0-9;]*m/g;
+const TERMINAL = new Set(['succeeded', 'succeeded_with_warnings', 'failed', 'cancelled',
+  'planned', 'plan_failed', 'interrupted', 'compensated', 'manual_attention']);
+const stamp = (v: any) => String(v || '').replace('T', ' ').slice(0, 19);
 
 export function RunsPage({ params }: { params: URLSearchParams }) {
   const [runs, setRuns] = useState<any[]>([]);
@@ -30,12 +33,21 @@ export function RunsPage({ params }: { params: URLSearchParams }) {
   useEffect(() => {
     if (!runId) { setRun(null); return; }
     let alive = true;
+    let stopped = false;
+    let timer: any;
     const load = async () => {
-      try { const r: any = await api.get(`/api/runs/${runId}`); if (alive) setRun(r); }
-      catch (e: any) { toast(e.message, 'error'); }
+      try {
+        const r: any = await api.get(`/api/runs/${runId}`);
+        if (alive) setRun(r);
+        // 终态后停止轮询，避免已完成的任务仍每 1.5s 刷 GET /api/runs/{id}
+        if (!stopped && (r.finished_at || TERMINAL.has(r.status))) {
+          stopped = true;
+          clearInterval(timer);
+        }
+      } catch (e: any) { toast(e.message, 'error'); }
     };
+    timer = setInterval(load, 1500);
     load();
-    const timer = setInterval(load, 1500);
     setEvents([]);
     esRef.current?.close();
     const es = new EventSource(sseUrl(`/api/runs/${runId}/events`));
@@ -101,7 +113,10 @@ export function RunsPage({ params }: { params: URLSearchParams }) {
 
       <div className="run-detail">
         {!run ? <Section title="步骤树 / 证据 / 控制"><Empty text="从左侧选择一个 run" /></Section> : <>
-          <Section title={`${run.id} · ${run.phase}`} actions={<Badge status={run.status} />}>
+          <Section title={`${run.id} · ${run.phase}`} actions={<span className="row">
+            <Badge status={run.status} />
+            <span className="tiny muted">{run.finished_at ? `已完成 ${stamp(run.finished_at)}` : '进行中…'}</span>
+          </span>}>
             <div className="row">
               <button className="btn tiny" onClick={() => control('cancel')}>取消</button>
               <button className="btn tiny" onClick={() => control('pause')}>暂停</button>
@@ -149,7 +164,7 @@ export function RunsPage({ params }: { params: URLSearchParams }) {
             <div id="log" className={`log ${wrap ? 'wrap' : ''}`} ref={logRef}>
               {!filtered.length ? <div className="muted">等待事件…（SSE，Last-Event-ID 续传）</div> :
                 filtered.map((ev) => <div key={ev.seq} className={`line ${/fail|error/i.test(ev.type) ? 'err' : ''}`}>
-                  <span className="t">{ev.seq} {String(ev.ts).slice(11, 23)}</span> <span className="ev-type">{ev.type}</span>{' '}
+                  <span className="t">{ev.seq} {stamp(ev.ts)}</span> <span className="ev-type">{ev.type}</span>{' '}
                   <span className={/stdout/.test(ev.type) ? 'stdout' : ''}>{String(JSON.stringify(ev.payload)).replace(ANSI, '').slice(0, 600)}</span>
                 </div>)}
             </div>

@@ -53,6 +53,7 @@ Windows 运行提示：
 - 默认仅监听 `127.0.0.1:8765`，无需管理员权限；`lan = true` 时需设置 `$env:WFP_PASSWORD` 并放行 Windows 防火墙。
 - 端口被占用：改用 `uv run wfp serve --port 9000`，或 `netstat -ano | findstr :8765` 定位占用进程。
 - 控制台中文乱码：`[Console]::OutputEncoding = [System.Text.Encoding]::UTF8`。
+- 控制台（uvicorn 访问/错误日志）与运行面板日志行均带 `YYYY-MM-DD HH:MM:SS` 时间戳；运行结束后面板停止轮询并显示完成时间。
 
 CLI 等价入口（无需打开浏览器）：
 
