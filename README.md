@@ -138,7 +138,7 @@ cd ..
 - `frontend/src/pages/Editor.tsx`：React Flow 图（拖拽插入、连线改序、多选删除、dagre 自动布局、when/loop 容器、撤销重做）⇄ Monaco YAML（300ms 防抖、lint 标记点击跳转）双栏；rjsf 参数表单只产出 `steps[i]` 最小 patch；布局写 `pipeline.layout.json`。
 - `frontend/src/StepParamsModal.tsx`：画布节点**单击仅选中，双击编辑参数**，也可点画布工具栏或右侧面板的「**编辑参数**」按钮；展示**可用参数列表**（manifest.params）、**修改默认参数**、增删**任意参数**（值支持 JSON），保存只替换 `steps[i].with`（DR-14/27/48）。
 - 工作项页「拖拽新建」→ 编排页无 `id` 时进入草稿模式：拖入动作按落点决定步骤顺序、连线/拖动改序、点击节点编辑参数，点「保存工作项」由后端 `POST /api/pipelines/draft` 生成并校验 YAML 真源，再写回布局。
-- `frontend/src/pages/Runs.tsx`：步骤树（循环/attempt）、SSE 日志（结构化打印执行命令/入口/参数/目标/结果/耗时，点击行展开完整 JSON，级别/关键字/步骤过滤、跟随暂停、ANSI、NDJSON 下载）、输出查看窗口、证据 diff/zip、运行历史删除（二次确认）、取消/暂停/续跑/补偿/单步重试、md/html/csv 报表。
+- `frontend/src/pages/Runs.tsx`：步骤树（循环/attempt）、SSE 日志（结构化打印执行命令/入口/参数/目标/结果/耗时，Python 脚本与远程命令 stdout 以纯文本多行显示，点击行展开完整 JSON，级别/关键字/步骤过滤、跟随暂停、ANSI、NDJSON 下载）、输出查看窗口、证据 diff/zip、运行历史删除（二次确认）、取消/暂停/续跑/补偿/单步重试、md/html/csv 报表。
 - `frontend/src/pages/Nodes.tsx` / `History.tsx` / `Settings.tsx` / `AIDraft.tsx`：节点与凭据 CRUD、历史筛选与"相同输入重跑"、设置与备份恢复、AI 四道闸。
 
 Vite 构建产物在 `wfp/web/dist/`，由 FastAPI `StaticFiles` 托管 `/assets/*`，**运行期不请求任何 CDN**（DR-07）。`npm run build` 还会生成兼容入口 `/app.js`、`/style.css`。
@@ -152,7 +152,13 @@ Vite 构建产物在 `wfp/web/dist/`，由 FastAPI `StaticFiles` 托管 `/assets
 
 拖拽新建工作项时，草稿表单同样提供这两项。YAML 里写 Windows 路径建议用正斜杠 `C:/Users/...` 或单引号，避免双引号标量中的 `\U` 被当成转义。
 
-`archive.pack` 的 `dest` 是压缩包**基名**：填 `C:\Users\Administrator\Downloads\workspace` 实际生成 `C:\Users\Administrator\Downloads\workspace.zip`；想输出到某目录内请写 `C:\Users\Administrator\Downloads\workspace\backup.zip`。该动作每次运行都会重新打包（DR-32 的幂等跳过不适用于 pack，见 `bug-tracks.md` BUG-007）。
+`archive.pack` 的 `dest` 支持三种写法：
+
+- **已存在的目录**（如 `C:\Users\Administrator\Downloads\workspace`）→ 压缩包生成在**该目录内**，文件名取源目录名（`my_dev.zip`），不会跑到上一层；
+- 以 `.zip` / `.tar.gz` 结尾 → 直接作为压缩包文件（后缀决定格式）；
+- 不存在的普通路径 → 视为基名补后缀（兼容旧行为）。
+
+默认 `include_root: true`，压缩包内保留 `my_dev/` 顶层目录；设为 `false` 则只打包源目录内容。日志与 PlanReport 会打印真实输出路径和包内根。该动作每次运行都重新打包（DR-32 跳过清单不含 pack，见 `bug-tracks.md` BUG-007/008）。
 
 ## 2. 已实现的工程能力
 

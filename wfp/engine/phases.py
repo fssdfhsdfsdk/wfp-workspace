@@ -455,6 +455,7 @@ class Runner:
                                  or entry.get("script") or ""),
                     "command": command, "params": run.redactor.scrub(params),
                     "targets": planned.targets, "workdir": str(run.doc.workspace),
+                    "info": planned.info,
                 }, step=sid)
                 key = make_key(f"{aid}@{ver}", params, planned.desired_state)
                 if caps["idempotent"] in ("yes", "conditional") and probe(ctx, planned.desired_state):
@@ -577,7 +578,7 @@ class Runner:
         last_error = ""
         for attempt in range(1, attempts + 1):
             run.cancel.check()
-            run.events.emit("step.started", {"attempt": attempt, "action": f"{aid}@{ver}"},
+            run.events.emit("step.attempt", {"attempt": attempt, "action": f"{aid}@{ver}"},
                             step=step["id"], attempt=attempt)
             ctx.deadline = time.monotonic() + ctx.timeout
             try:

@@ -92,26 +92,43 @@ def _plan_archive(ctx: ActionContext) -> PlanResult:
     return r
 
 
-def _pack_output(ctx: ActionContext) -> tuple[Path, Path, str, Path, str]:
-    """打包动作的实际输出：dest 只是基名，make_archive 会补 .zip / .tar.gz 后缀。"""
+def _pack_output(ctx: ActionContext) -> tuple[Path, Path, str, Path, str, bool]:
+    """确定压缩包输出路径与包内层级。
+
+    dest 三种语义：
+    - 以 .zip / .tar.gz 结尾：直接作为压缩包文件（后缀同时决定 format）；
+    - 指向已存在的目录：把 <源目录名>.zip 放进该目录，而不是放到它的上一层；
+    - 其余：视为压缩包基名并补后缀（兼容旧行为）。
+    include_root 默认 True：压缩包内保留源目录名一层。
+    """
     src, dest = _local(ctx, "src"), _local(ctx, "dest")
-    fmt = ctx.params.get("format", "zip")
-    base = str(dest)
-    for suffix in (".zip", ".tar.gz"):
-        if base.endswith(suffix):
-            base = base[:-len(suffix)]
-    out = Path(base + (".tar.gz" if fmt == "tar.gz" else ".zip"))
-    return src, dest, base, out, fmt
+    fmt = str(ctx.params.get("format", "zip"))
+    include_root = bool(ctx.params.get("include_root", True))
+    raw = str(dest)
+    matched = next((s for s in (".zip", ".tar.gz") if raw.lower().endswith(s)), None)
+    if matched:
+        fmt = "tar.gz" if matched == ".tar.gz" else "zip"
+        out = Path(raw)
+        base = raw[:-len(matched)]
+    else:
+        suffix = ".tar.gz" if fmt == "tar.gz" else ".zip"
+        out = dest / f"{src.name}{suffix}" if dest.is_dir() else Path(raw + suffix)
+        base = str(out)[:-len(suffix)]
+    return src, dest, base, out, fmt, include_root
 
 
 def _plan_pack(ctx: ActionContext) -> PlanResult:
-    src, _dest, _base, out, _fmt = _pack_output(ctx)
+    src, _dest, _base, out, _fmt, include_root = _pack_output(ctx)
     # dest 只是压缩包基名；若用它做 exists 探测，只要同名目录/文件存在就会误判幂等，
     # run 显示 succeeded 却从未生成压缩包。DR-32 的跳过清单本就不含 archive.pack。
-    return PlanResult(targets=[str(src), str(out)],
-                      backup_targets=[{"kind": "local", "path": str(out), "is_dir": False}]
-                      if out.exists() else [],
-                      desired_state={"idempotent": False, "path": str(out)})
+    r = PlanResult(targets=[str(src), str(out)],
+                   backup_targets=[{"kind": "local", "path": str(out), "is_dir": False}]
+                   if out.exists() else [],
+                   desired_state={"idempotent": False, "path": str(out)})
+    r.info["output"] = str(out)
+    r.info["archive_root"] = f"{src.name}/" if include_root else "<源目录内容>"
+    r.diff = f"pack {src} -> {out}（包内根 {r.info['archive_root']}）\n"
+    return r
 
 
 def _plan_config(ctx: ActionContext) -> PlanResult:
@@ -221,8 +238,8 @@ def _selected(name: str, include: list[str], exclude: list[str]) -> bool:
 
 
 def _apply_pack(ctx: ActionContext) -> ApplyResult:
-    src, dest, base, out, fmt = _pack_output(ctx)
-    dest.parent.mkdir(parents=True, exist_ok=True)
+    src, _dest, base, out, fmt, include_root = _pack_output(ctx)
+    out.parent.mkdir(parents=True, exist_ok=True)
     try:
         # dest 落在 src 内会让 shutil.make_archive 把正在生成的压缩包打进自身，
         # 文件持续膨胀且任务永不结束（用户反馈的"压缩文件夹持续未完成"）。
@@ -231,8 +248,13 @@ def _apply_pack(ctx: ActionContext) -> ApplyResult:
                                 path="dest")
     except (ValueError, OSError):
         pass
-    archive = shutil.make_archive(base, "gztar" if fmt == "tar.gz" else "zip", src)
-    return ApplyResult(outputs={"archive": archive, "sha256": sha256_bytes(Path(archive).read_bytes())})
+    archive = shutil.make_archive(
+        base, "gztar" if fmt == "tar.gz" else "zip",
+        root_dir=str(src.parent) if include_root else str(src),
+        base_dir=src.name if include_root else None)
+    return ApplyResult(outputs={"archive": archive,
+                                "archive_root": f"{src.name}/" if include_root else "",
+                                "sha256": sha256_bytes(Path(archive).read_bytes())})
 
 
 def _apply_copy(ctx: ActionContext) -> ApplyResult:

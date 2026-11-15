@@ -112,6 +112,7 @@ tr.row-active td { background: rgba(91,140,255,.10); }
   height: 360px; overflow: auto; font: 12px/1.5 ui-monospace, Consolas, monospace; white-space: pre; }
 .log.wrap { white-space: pre-wrap; word-break: break-all; }
 .log .line { border-bottom: 1px solid rgba(255,255,255,.03); padding: 1px 0; }
+.log .line.stdout-line { white-space: pre-wrap; font-family: ui-monospace, Consolas, Menlo, monospace; }
 .log .t { color: var(--muted); } .log .ev-type { color: var(--accent); }
 .log .err .ev-type { color: var(--err); } .log .stdout { color: #d5e2ff; }
 .output-window { background: #0b101b; border: 1px solid var(--line); border-radius: 8px; padding: 12px;

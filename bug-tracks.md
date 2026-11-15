@@ -263,3 +263,80 @@ plan 的期望态指向压缩包**基名**而非真实输出文件，配合宽�
 
 时间：
 2026-11-16
+
+## BUG-008 · 压缩包落在 dest 的上一层、包内少一层目录、日志出现重复空 step.started
+
+描述：
+`archive.pack` 的 `dest` 填 `C:\Users\Administrator\Downloads\workspace`（该目录已存在），
+日志显示目标为 `C:\Users\Administrator\Downloads\workspace.zip`，压缩包出现在 Downloads
+而不是 workspace 目录内；解压后内容也少了 `my_dev/` 这一层。另外日志里有第二条
+`step.started`，`runtime / 参数 / 目标 / 工作目录` 全是 `-`。
+
+背景与上下文：
+Windows，日志 2026-11-16 00:22:29；`run.started` 工作目录是数据目录
+`D:\myProject\wfp-workspace\.wfp-home\pipelines\test\1.0.5`，src/dest 均为 C 盘绝对路径。
+
+分析过程：
+1. `wfp/actions/builtin.py::_pack_output` 把 `dest` 一律当"压缩包基名"补后缀，
+   完全没有处理"dest 是已存在目录"的情况，于是输出落在 dest 的父目录（上一层）。
+2. `shutil.make_archive(base, fmt, src)` 用 `src` 作 root_dir，压缩包内是源目录的**内容**，
+   不含 `my_dev/` 顶层目录，用户解压后感觉"在上一层级"。
+3. `wfp/engine/phases.py::_run_with_retry` 也 emit `step.started`（payload 仅 attempt/action），
+   与 `_execute` 新增的完整 `step.started` 重名，前端按完整字段格式化时第二条全显示 `-`。
+
+根因：
+`dest` 语义单一且不符合"压缩文件夹"直觉；压缩包内根层级缺失；事件名复用造成日志混淆。
+
+解决方法：
+1. `dest` 三分支语义：已存在目录 → 输出 `<dest>/<src.name>.zip`；以 `.zip`/`.tar.gz` 结尾
+   → 直接作为压缩包文件（后缀决定 format）；其余 → 基名补后缀（兼容旧行为）。
+2. `archive.pack` manifest 新增 `include_root`（默认 true），
+   `make_archive(root_dir=src.parent, base_dir=src.name)` 保留顶层目录；显式 `false` 可恢复旧行为。
+3. `_plan_pack` 的 `info` 带 `output` / `archive_root`，`step.started` payload 带上 `info`，
+   前端日志行打印「输出 / 包内根」，可直接看到压缩包真实位置。
+4. `_run_with_retry` 事件改名 `step.attempt`，前端单独渲染「第 N 次尝试」，消除重复空 `step.started`。
+5. 回归 `tests/integration/test_pack_idempotency.py`：目录语义、显式 .zip、基名、
+   `include_root: false`、日志 output/archive_root 与 `step.attempt`。
+6. 老数据库里的内置 `archive.pack@1.0.0` manifest 没有 `include_root` 字段：
+   `seed_builtin_actions` 启动时同步系统内置契约（仅内置动作、不动实现体字节），
+   避免旧库上显式传 `include_root: false` 被 `validate_params` 拒绝；回归用例
+   `test_builtin_contract_sync_upgrades_existing_manifest`。
+
+时间：
+2026-11-16
+
+## BUG-009 · 日志流把脚本/远程命令 stdout 显示成 JSON 包裹且折叠换行
+
+描述：
+按 TDD 编写【工作项-复杂工作#01】11 步端到端用例时发现：后端已把 Python 脚本与远程命令的
+stdout 写入 `step.stdout` 事件，但运行面板显示成 `{"text":"..."}` 且多行输出被压成一行，
+不满足"日志流可以显示 python 脚本的输出、远程命令的输出"的验收。
+
+背景与上下文：
+用户要求的复杂工作项包含动作库中编辑加入的 Python 脚本、3 条远程命令、上传文件夹与 2 个文件，
+并要求命令/脚本异常即失败。先写测试再跑（TDD），5 个用例首次运行 2 个失败。
+
+分析过程：
+1. `wfp/runtimes/script.py::_run_python/_run_shell` 与 `wfp/runtimes/remote.py::apply_exec`
+   都调用 `ctx.emit_log(out, "stdout")`；NDJSON 中 `step.stdout.payload.text` 是纯文本，
+   测试断言「含 python-script-ok / root / fake-ok: systemctl / fake-ok: curl 且无 b' 转义」通过
+   → 后端无缺陷。
+2. `frontend/src/pages/Runs.tsx::payloadLine` 对 `step.stdout` 走默认 `JSON.stringify(p)`，
+   显示成 JSON 包裹；`frontend/src/styles.css` 的 `.log .line` 未设 `white-space`，换行被折叠。
+3. 另两处是测试夹具写法问题而非产品缺陷：`command: false` 被 YAML 解析成布尔导致
+   `validate_params` 拒绝（应为 `"false"`）；`readonly` 的命令3 在 plan 阶段会做只读探测（DR-30），
+   `FakeTransport.exec_log` 会提前出现它，断言应改为「apply 阶段未生成 s11 步骤记录」。
+
+根因：
+日志渲染层缺少对 stdout/stderr 事件的专门格式化与多行样式；TDD 用例的两处断言/夹具不够精确。
+
+解决方法：
+1. `payloadLine` 对 `step.stdout` / `step.stderr` 直接返回 `p.text`；
+   日志行加 `stdout-line` class，CSS `white-space: pre-wrap` + 等宽字体，保留脚本/命令原始换行。
+2. 修正测试夹具：`command: "false"`，失败断言改为基于 `result["steps"]` 中是否出现 s11。
+3. 新增 `tests/e2e/test_complex_work_01.py` 5 个用例：11 步正向全绿、远程命令异常失败、
+   Python 脚本退出码 3 失败、配置缺失导致 assert 失败、日志视图源码断言；
+   同时验证 `register` 作用域（`{{ py.marker }}` 写入远端 JSON）、上传文件夹与 2 个相对路径文件。
+
+时间：
+2026-11-16

@@ -20,7 +20,15 @@ const payloadLine = (ev: any): string => {
       `参数 ${JSON.stringify(p.params || {})}`,
       `目标 ${(p.targets || []).join(', ') || '-'}`,
       `工作目录 ${p.workdir || '-'}`,
-    ].join('  |  ');
+      p.info?.output ? `输出 ${p.info.output}` : '',
+      p.info?.archive_root ? `包内根 ${p.info.archive_root}` : '',
+    ].filter(Boolean).join('  |  ');
+  }
+  if (ev.type === 'step.attempt') {
+    return `动作 ${p.action || '-'}  |  第 ${p.attempt || 1} 次尝试`;
+  }
+  if (ev.type === 'step.stdout' || ev.type === 'step.stderr') {
+    return String(p.text ?? JSON.stringify(p));
   }
   if (ev.type === 'step.finished') {
     return [
@@ -195,7 +203,8 @@ export function RunsPage({ params }: { params: URLSearchParams }) {
             </div>
             <div id="log" className={`log ${wrap ? 'wrap' : ''}`} ref={logRef}>
               {!filtered.length ? <div className="muted">等待事件…（SSE，Last-Event-ID 续传）</div> :
-                filtered.map((ev) => <div key={ev.seq} className={`line ${/fail|error/i.test(ev.type) ? 'err' : ''}`}
+                filtered.map((ev) => <div key={ev.seq}
+                  className={`line ${/fail|error/i.test(ev.type) ? 'err' : ''} ${/^step\.(stdout|stderr)$/.test(ev.type) ? 'stdout-line' : ''}`}
                   title="点击展开完整事件 JSON" onClick={() => setExpanded((x) => ({ ...x, [ev.seq]: !x[ev.seq] }))}>
                   <span className="t">{ev.seq} {stamp(ev.ts)}</span> <span className="ev-type">{ev.type}</span>{' '}
                   <span className={/stdout/.test(ev.type) ? 'stdout' : ''}>

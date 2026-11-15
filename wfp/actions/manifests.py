@@ -80,7 +80,9 @@ SPECS: list[dict[str, Any]] = [
                         "exclude": {"type": "array", "items": STR}}, ["archive", "dest"]),
                   evidence=["report", "backup"], tags=["zip", "tar.gz"]),
     make_manifest("archive.pack", "打包备份", "archive",
-                  _obj({"src": PATH, "dest": PATH, "format": {"enum": ["zip", "tar.gz"]}},
+                  _obj({"src": PATH, "dest": PATH, "format": {"enum": ["zip", "tar.gz"]},
+                        "include_root": {"type": "boolean", "default": True,
+                                         "description": "压缩包内保留源目录名一层（压缩文件夹的直觉行为）"}},
                        ["src", "dest"]), evidence=["backup"]),
     make_manifest("fs.copy", "复制文件/目录", "fs", PATH_PAIR, evidence=["backup"]),
     make_manifest("fs.move", "移动文件/目录", "fs", PATH_PAIR, evidence=["backup"]),
@@ -147,15 +149,31 @@ if __name__ == "__main__":
 
 
 def seed_builtin_actions(registry: Any, *, actor: str = "system") -> int:
-    """幂等地把内置动作写入动作库（仍需通过同一 manifest 校验，DR-11/17/18）。"""
+    """幂等地把内置动作写入动作库（仍需通过同一 manifest 校验，DR-11/17/18）。
+
+    老数据库里已存在的内置 1.0.0 可能缺少后来新增的参数（如 archive.pack.include_root），
+    启动时把系统内置契约同步到最新定义；用户自建动作与实现体字节不受影响。
+    """
+    import json
+
     from wfp.errors import Conflict
     created = 0
-    for _action_id, manifest in BUILTIN_MANIFESTS.items():
+    for action_id, manifest in BUILTIN_MANIFESTS.items():
         try:
             registry.create(manifest, _impl_for(manifest), actor=actor)
             created += 1
         except Conflict:
-            continue
+            try:
+                current = registry.get_version(action_id, manifest["version"])
+                if current["manifest"] != manifest:
+                    payload_json = json.dumps(manifest, ensure_ascii=False)
+                    aid, ver = action_id, manifest["version"]
+                    registry.store.write(lambda c, p=payload_json, a=aid, v=ver: c.execute(
+                        "UPDATE action_version SET manifest_json=? WHERE action_id=? AND version=?",
+                        (p, a, v)))
+                    registry.store.audit(actor, "action.contract_sync", aid, {"version": ver})
+            except Exception:  # noqa: BLE001 - 契约同步失败不应阻止平台启动
+                continue
     return created
 
 
