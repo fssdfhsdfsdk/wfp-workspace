@@ -133,6 +133,8 @@ cd ..
 - `frontend/src/pages/Actions.tsx`：分类/搜索、CRUD、启停/复制、Monaco 实现体编辑、版本 diff、契约套件、单动作试跑。
 - `frontend/src/pages/Pipelines.tsx`：rjsf inputs 表单、干跑 → PlanReport（diff/风险/不可补偿）→ 确认闸 → 执行、复制/导出/删除二次确认。
 - `frontend/src/pages/Editor.tsx`：React Flow 图（拖拽插入、连线改序、多选删除、dagre 自动布局、when/loop 容器、撤销重做）⇄ Monaco YAML（300ms 防抖、lint 标记点击跳转）双栏；rjsf 参数表单只产出 `steps[i]` 最小 patch；布局写 `pipeline.layout.json`。
+- `frontend/src/StepParamsModal.tsx`：点击画布动作节点即打开参数编辑器，展示**可用参数列表**（manifest.params）、**修改默认参数**、增删**任意参数**（值支持 JSON），保存只替换 `steps[i].with`（DR-14/27/48）。
+- 工作项页「拖拽新建」→ 编排页无 `id` 时进入草稿模式：拖入动作按落点决定步骤顺序、连线/拖动改序、点击节点编辑参数，点「保存工作项」由后端 `POST /api/pipelines/draft` 生成并校验 YAML 真源，再写回布局。
 - `frontend/src/pages/Runs.tsx`：步骤树（循环/attempt）、SSE 日志（级别/关键字/步骤过滤、跟随暂停、ANSI、NDJSON 下载）、输出查看窗口、证据 diff/zip、取消/暂停/续跑/补偿/单步重试、md/html/csv 报表。
 - `frontend/src/pages/Nodes.tsx` / `History.tsx` / `Settings.tsx` / `AIDraft.tsx`：节点与凭据 CRUD、历史筛选与"相同输入重跑"、设置与备份恢复、AI 四道闸。
 

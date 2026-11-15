@@ -88,11 +88,11 @@ function Inner(props: any) {
 
   const onDragStop = useCallback((_: any, node: any) => {
     const ids: string[] = computed.nodes.map((n: any) => n.id);
-    const sorted = [...computed.nodes].sort((a: any, b: any) => a.position.y - b.position.y);
+    const sorted = [...rfNodes].sort((a: any, b: any) => a.position.y - b.position.y);
     const from = ids.indexOf(node.id);
     const to = sorted.findIndex((n: any) => n.id === node.id);
     if (from !== to && to >= 0) onReorder(from, to);
-  }, [computed.nodes, onReorder]);
+  }, [computed.nodes, rfNodes, onReorder]);
 
   const onConnect = useCallback((conn: any) => {
     const ids: string[] = computed.nodes.map((n: any) => n.id);

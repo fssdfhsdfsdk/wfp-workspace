@@ -21,7 +21,7 @@ class YamlParseError(ContractError):
 
 @dataclass
 class GraphDelta:
-    kind: str                       # update_param|insert_step|remove_step|move_step|wrap_container|update_uses
+    kind: str                       # update_param|set_with|insert_step|remove_step|move_step|wrap_container|update_uses
     step_id: str | None = None
     field: str | None = None
     value: Any = None
@@ -29,6 +29,7 @@ class GraphDelta:
     new_step: dict[str, Any] | None = None
     src: int | None = None
     dst: int | None = None
+    index: int | None = None         # 拖拽落点对应的插入序号（DR-44）
     expr: str | None = None
     container: str = "when"
 
@@ -130,8 +131,19 @@ class YamlDoc:
             new_value = delta.value if delta.kind == "update_uses" else delta.expr
             if steps[i].get(key) != new_value:
                 patches.append(Patch(["steps", i, key], "replace", new_value))
+        elif delta.kind == "set_with":
+            # 任意参数 / 默认值覆盖：一次性替换 steps[i].with，仍是最小 patch（DR-45/48）
+            i = self.index_of(delta.step_id or "")
+            value = delta.value if isinstance(delta.value, dict) else {}
+            if dict(steps[i].get("with") or {}) != value:
+                patches.append(Patch(["steps", i, "with"], "replace", value))
         elif delta.kind == "insert_step":
-            idx = self.index_of(delta.after_step_id) + 1 if delta.after_step_id else len(steps)
+            if delta.index is not None:
+                idx = max(0, min(int(delta.index), len(steps)))
+            elif delta.after_step_id:
+                idx = self.index_of(delta.after_step_id) + 1
+            else:
+                idx = len(steps)
             patches.append(Patch(["steps", idx], "add", delta.new_step or {}))
         elif delta.kind == "remove_step":
             patches.append(Patch(["steps", self.index_of(delta.step_id or "")], "remove"))
@@ -183,6 +195,10 @@ class YamlDoc:
                 if "with" not in st or not isinstance(st["with"], dict):
                     st["with"] = CommentedMap()
                 st["with"][p.path[3]] = p.value
+            elif len(p.path) == 3 and p.path[2] == "with":
+                whole = CommentedMap()
+                whole.update(p.value or {})
+                st["with"] = whole
             else:
                 st[p.path[2]] = p.value
 

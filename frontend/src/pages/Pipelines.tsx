@@ -81,10 +81,11 @@ export function PipelinesPage() {
   return <div className="page">
     <div className="page-head"><div><h1>工作项列表</h1><p className="sub">YAML 真源；一键运行先弹 inputs 表单，干跑预览 → 确认闸 → 执行（DR-42/49）</p></div>
       <div className="row"><button className="btn primary" onClick={() => setImportOpen(true)}>导入 YAML</button>
+        <button className="btn" onClick={() => location.hash = '#/editor'}>拖拽新建</button>
         <button className="btn" onClick={() => setAiOpen(true)}>AI 草案</button>
         <button className="btn" onClick={load}>刷新</button></div></div>
     <Section title={`工作项（${list.length}）`}>
-      {!list.length ? <Empty text="还没有工作项，先导入一个 YAML。" /> :
+      {!list.length ? <Empty text="还没有工作项：可导入 YAML，或点「拖拽新建」在编排视图拖入动作组合。" /> :
         <table><thead><tr><th>ID</th><th>名称</th><th>版本</th><th>步骤</th><th>最近运行</th><th>耗时</th><th>操作</th></tr></thead>
           <tbody>{list.map((p) => {
             const s = stats[p.id];

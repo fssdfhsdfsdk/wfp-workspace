@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import secrets
 import threading
 import uuid
@@ -30,7 +31,7 @@ from wfp.contracts.yamlio import safe_dump
 from wfp.doctor import run_doctor
 from wfp.engine.journal import EventWriter
 from wfp.engine.phases import Runner
-from wfp.errors import Conflict, NotFound, WfpError
+from wfp.errors import Conflict, ContractError, NotFound, WfpError
 from wfp.maintenance import diagnostics, export_all, import_all, run_evidence_zip, verify
 from wfp.paths import DataPaths
 from wfp.reports import run_report, summary
@@ -282,6 +283,37 @@ def create_app(paths: DataPaths | None = None, *, token: str | None = None,
         if body.get("path"):
             text = Path(body["path"]).read_text(encoding="utf-8")
         return pipelines.create(text)
+
+    @app.post("/api/pipelines/draft")
+    async def pipeline_draft(request: Request) -> Any:
+        """DR-44：从编排视图的拖拽草稿创建工作项；YAML 真源仍由后端生成并校验。"""
+        body = await request.json()
+        pid = str(body.get("id") or "").strip()
+        if not re.fullmatch(r"[a-z][a-z0-9_-]*", pid):
+            raise ContractError("工作项 ID 必须小写字母开头，仅含小写字母/数字/下划线/连字符",
+                                path="meta.id")
+        raw_steps = body.get("steps") or []
+        if not raw_steps:
+            raise ContractError("请至少拖入一个动作再保存", path="steps")
+        steps: list[dict[str, Any]] = []
+        for i, s in enumerate(raw_steps):
+            if not isinstance(s, dict) or not s.get("uses"):
+                raise ContractError(f"steps[{i}] 缺少 uses", path=f"steps[{i}]")
+            step: dict[str, Any] = {"id": str(s.get("id") or f"s{i + 1}"),
+                                    "uses": str(s["uses"]), "with": s.get("with") or {}}
+            for key in ("name", "when", "node", "timeout_seconds"):
+                if s.get(key) not in (None, ""):
+                    step[key] = s[key]
+            if isinstance(s.get("loop"), dict):
+                step["loop"] = s["loop"]
+            steps.append(step)
+        doc: dict[str, Any] = {
+            "apiVersion": "wfp/v1",
+            "meta": {"id": pid, "name": str(body.get("name") or pid), "version": "1.0.0"},
+            "inputs": body.get("inputs") or {"type": "object", "properties": {}},
+            "steps": steps,
+        }
+        return pipelines.create(safe_dump(doc))
 
     @app.get("/api/pipelines/{pipeline_id}")
     def pipeline_get(pipeline_id: str) -> Any:
